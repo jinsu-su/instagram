@@ -1,0 +1,65 @@
+=== Meta App Review - pages_messaging Permission Description (Field 1) ===
+
+[Copy and paste this text into the first field of Meta App Review form]
+
+---
+
+**1. How the app uses this permission:**
+
+Our app (AISP Service) is an automated messaging management tool for Instagram Business accounts. The pages_messaging permission is used exclusively for the following purposes:
+
+(1) Real-time Instagram Direct Messages Reception
+- The app subscribes to page webhooks to receive Instagram Direct Messages sent to the connected Instagram Business account in real-time
+- Webhook endpoint: https://{backend-url}/instagram/webhook
+- This enables immediate processing of incoming messages and triggering automated responses
+
+(2) Customer Support Message Sending
+- The app allows page managers to send customer support messages through the Instagram Messaging API
+- Response messages are sent in reply to customer inquiries received via Instagram Direct Messages
+- All messages are sent on behalf of the page manager who has authorized the app
+
+(3) Automated Response System
+- When a customer sends a message to the Instagram Business account, the app can automatically respond based on predefined rules or AI-powered responses
+- This enables page managers to provide timely customer support even outside business hours
+
+**2. Value provided to people using the app:**
+
+The pages_messaging permission provides the following value to page managers:
+
+- **Never Miss Customer Messages**: Receive real-time notifications when customers send messages to their Instagram Business account
+- **Automated Customer Support**: Automatically respond to common inquiries, reducing response time and improving customer satisfaction
+- **Centralized Message Management**: Manage all Instagram Direct Messages from a single dashboard, making it easier to track and respond to customer inquiries
+- **24/7 Availability**: Provide customer support even when page managers are not actively monitoring their Instagram account
+- **Improved Response Efficiency**: Quickly identify and prioritize urgent messages through automated message routing and categorization
+
+**3. Why this permission is needed for the app's functionality:**
+
+The pages_messaging permission is **essential** for our app's core functionality:
+
+(1) Webhook Subscription Requirement
+- To receive Instagram Direct Messages in real-time, the app must subscribe to page webhooks with the "messages" field
+- Meta's webhook API requires pages_messaging permission to subscribe to message events
+- Without this permission, the app cannot receive incoming messages and cannot function as an automated messaging tool
+
+(2) Message Sending Capability
+- The app needs to send customer support messages in response to incoming inquiries
+- The Instagram Messaging API requires pages_messaging permission to send messages on behalf of the page
+- This is a core feature that page managers rely on for customer communication
+
+(3) Complete Messaging Workflow
+- The app provides a complete messaging workflow: receive messages → process/analyze → send responses
+- Both receiving and sending capabilities are required for the app to function as intended
+- Without pages_messaging, the app would only be able to read messages but not respond, making it incomplete for customer support use cases
+
+**4. Data Usage Compliance:**
+
+All data received through the pages_messaging permission is used in accordance with Meta's allowed use cases:
+
+- **Customer Support Only**: All messages are used solely for customer support and communication purposes
+- **No Unauthorized Data Sharing**: Message content and customer data are never shared with third parties without explicit consent
+- **Aggregated Analytics**: We may use aggregated, anonymized, and non-identifiable message data (that cannot be re-identified) to improve our app's response accuracy and operational efficiency
+- **Data Security**: All message data is encrypted in transit and at rest, following industry best practices
+- **User Control**: Page managers have full control over their message data and can revoke access at any time
+
+---
+

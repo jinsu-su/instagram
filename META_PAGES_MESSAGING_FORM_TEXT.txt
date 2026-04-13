@@ -1,0 +1,63 @@
+=== Meta App Review Form - pages_messaging Permission Description ===
+
+[Copy and paste the text below into the Meta App Review form]
+
+---
+
+**How the app uses this permission:**
+
+Our app (AISP Service) is an automated messaging management tool for Instagram Business accounts. The pages_messaging permission is used exclusively for:
+
+1. Receiving Instagram Direct Messages via Webhooks: The app subscribes to page webhooks to receive real-time Instagram Direct Messages sent to the connected Instagram Business account. Messages are received through our webhook endpoint, enabling immediate processing and automated responses.
+
+2. Sending Customer Support Messages: The app allows page managers to send customer support messages through the Instagram Messaging API in response to customer inquiries received via Instagram Direct Messages. All messages are sent on behalf of the authorized page manager.
+
+3. Automated Response System: When a customer sends a message, the app can automatically respond based on predefined rules or AI-powered responses, helping page managers provide timely customer support even outside business hours.
+
+**Value provided to people using the app:**
+
+The pages_messaging permission enables page managers to:
+- Never miss customer messages with real-time notifications
+- Provide automated customer support, reducing response time and improving satisfaction
+- Manage all Instagram Direct Messages from a centralized dashboard
+- Offer 24/7 customer support availability
+- Improve response efficiency through automated message routing and prioritization
+
+**Why this permission is needed for the app's functionality:**
+
+The pages_messaging permission is essential for our app's core functionality:
+
+1. Webhook Subscription Requirement: To receive Instagram Direct Messages in real-time, the app must subscribe to page webhooks with the "messages" field. Meta's webhook API requires pages_messaging permission to subscribe to message events. Without this permission, the app cannot receive incoming messages and cannot function as an automated messaging tool.
+
+2. Message Sending Capability: The app needs to send customer support messages in response to incoming inquiries. The Instagram Messaging API requires pages_messaging permission to send messages on behalf of the page. This is a core feature that page managers rely on for customer communication.
+
+3. Complete Messaging Workflow: The app provides a complete messaging workflow: receive messages → process/analyze → send responses. Both receiving and sending capabilities are required for the app to function as intended. Without pages_messaging, the app would only be able to read messages but not respond, making it incomplete for customer support use cases.
+
+**Data Usage Compliance:**
+
+We commit to using all data received through pages_messaging permission in accordance with Meta's allowed use cases:
+- Customer Support Only: All messages are used solely for customer support and communication purposes
+- No Unauthorized Data Sharing: Message content and customer data are never shared with third parties without explicit consent
+- Aggregated Analytics: We may use aggregated, anonymized, and non-identifiable message data (that cannot be re-identified) to improve our app's response accuracy and operational efficiency
+- Data Security: All message data is encrypted in transit and at rest, following industry best practices
+- User Control: Page managers have full control over their message data and can revoke access at any time
+
+---
+
+**Testing Instructions:**
+
+Step 1: Navigate to https://{frontend-url}/onboard/meta and click "Login with Facebook"
+Step 2: Grant all requested permissions, including pages_messaging, and select the Facebook Page and Instagram Business account to connect
+Step 3: After account linking, verify webhook subscription status at GET /instagram/accounts/{customer_id}/webhook-status (expected: webhook_subscribed: true)
+Step 4: From a personal Instagram account, send a Direct Message to the connected Instagram Business account
+Step 5: Verify the message is received by the app's webhook endpoint and can trigger automated responses
+Step 6: Use the app's interface to send a response message, and verify it appears in the customer's Instagram Direct Messages
+
+Note: We will provide a temporary test account with admin role on a test Facebook Page and connected Instagram Business account for Facebook reviewers to test the messaging functionality.
+
+---
+
+**Agreement:**
+
+I agree that if approved, all data received through pages_messaging will be used in accordance with the allowed use cases described above.
+

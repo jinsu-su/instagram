@@ -1,0 +1,161 @@
+META APP REVIEW SUBMISSION NOTE
+================================
+
+Permission Requests: pages_manage_metadata, pages_read_engagement
+
+---
+
+SCREENCAST DESCRIPTION
+----------------------
+
+This screencast demonstrates the complete end-to-end user experience of our Instagram AI Chatbot service, showing how we use pages_manage_metadata and pages_read_engagement permissions.
+
+---
+
+STEP-BY-STEP BREAKDOWN
+----------------------
+
+[0:00-0:10] Step 1: User Opens the App
+- User navigates to the Instagram Integration Console
+- User clicks the "Meta Login" button to begin the authentication flow
+- Caption: "Step 1: User opens the app and clicks Meta Login button"
+
+[0:10-0:20] Step 2: Meta Login Page
+- User is redirected to Meta (Facebook) login page
+- User enters credentials and logs in
+- Caption: "Step 2: User is redirected to Meta login page and logs in"
+
+[0:20-0:40] Step 3: Permission Consent Screen ⭐ CRITICAL
+- Meta displays the permission consent screen
+- User can see the list of requested permissions, including:
+  * pages_read_engagement
+  * pages_manage_metadata
+  * pages_show_list
+  * instagram_basic
+  * instagram_manage_messages
+  * (and other required permissions)
+- User scrolls through the permission list to view all permissions
+- User clicks "Allow" or "Continue" to grant permissions
+- Caption: "Step 3: User grants permissions including pages_read_engagement and pages_manage_metadata"
+- Note: If these permissions do not appear in the OAuth consent screen (as they are Advanced Access permissions), we demonstrate the permission request flow using Graph API Explorer (https://developers.facebook.com/tools/explorer/)
+
+[0:40-1:00] Step 4: Customer Information and Account Selection
+- User is redirected to the onboarding page (/onboard/meta)
+- User enters customer information (name, email)
+- User selects their Facebook Page
+- User selects their Instagram Business Account
+- User clicks "Confirm Connection" to complete the setup
+- Caption: "Step 4: User selects Facebook Page and Instagram Business Account"
+
+[1:00-1:20] Step 5: pages_manage_metadata Usage - Webhook Subscription ⭐
+- After account connection, the app automatically displays the "Webhook Subscription Status" section
+- User switches to English UI by clicking the "English" button in the header
+- The section clearly shows:
+  * Permission Used: pages_manage_metadata
+  * Usage Description: "This permission is used to subscribe to page webhooks for receiving Instagram message events."
+  * Webhook subscription status (Subscribed/Not Subscribed badge)
+  * Page ID
+  * Subscribed fields (if available)
+- This demonstrates how the app uses pages_manage_metadata to subscribe to page webhooks, enabling real-time Instagram message reception
+- Caption: "Step 5: App uses pages_manage_metadata to subscribe to page webhooks for receiving Instagram message events"
+
+[1:20-1:40] Step 6: pages_read_engagement Usage - Page Insights ⭐
+- On the same page, the app automatically displays the "Page Engagement Insights" section
+- The section clearly shows:
+  * Permission Used: pages_read_engagement
+  * Usage Description: "This permission is used to read page engagement data (posts, followers, likes, comments) to help page managers understand message context and prioritize responses."
+  * Follower count
+  * Recent posts engagement data (likes count, comments count for up to 3 recent posts)
+- This demonstrates how the app uses pages_read_engagement to read page engagement data, helping page managers understand their audience and prioritize message responses
+- Caption: "Step 6: App uses pages_read_engagement to read page engagement data (posts, followers, likes, comments)"
+
+[1:40-2:00] Step 7: End-to-End Message Reception Demo (Optional, Recommended)
+- User sends a test message via Instagram Direct Message
+- The app receives the message through the webhook (using pages_manage_metadata)
+- The app processes the message and generates an AI-powered response
+- Caption: "Step 7: Webhook receives Instagram message events (using pages_manage_metadata) and app responds"
+
+---
+
+PERMISSION USAGE DETAILS
+------------------------
+
+pages_manage_metadata:
+- Purpose: Subscribe to page webhooks for receiving Instagram message events in real-time
+- Usage: The app uses this permission to subscribe to page webhooks via the Graph API /subscribed_apps endpoint
+- User Benefit: Enables real-time Instagram Direct Message reception without polling, providing instant customer support
+- End-to-End Experience: 
+  1. User grants permission during OAuth flow
+  2. App automatically subscribes to webhooks after account connection
+  3. Webhook subscription status is displayed in the UI
+  4. App receives Instagram messages in real-time via webhooks
+
+pages_read_engagement:
+- Purpose: Read page engagement data (posts, followers, likes, comments) to help page managers understand message context and prioritize responses
+- Usage: The app uses this permission to read page insights via the Graph API, including follower count and post engagement metrics
+- User Benefit: Helps page managers understand their audience engagement, prioritize important messages, and provide context-aware responses
+- End-to-End Experience:
+  1. User grants permission during OAuth flow
+  2. App automatically fetches page insights after account connection
+  3. Page insights (followers, recent posts engagement) are displayed in the UI
+  4. This data helps page managers understand message context and prioritize responses
+
+---
+
+UI LANGUAGE
+-----------
+
+The screencast demonstrates the app in English UI:
+- User clicks the "English" button in the header to switch to English UI
+- All permission descriptions and UI elements are displayed in English
+- Captions and tooltips are provided in English throughout the screencast
+
+---
+
+SCREENCAST BEST PRACTICES
+-------------------------
+
+- English UI: All UI elements are displayed in English
+- Captions: Each step includes clear captions (e.g., "Step X: [Description]")
+- Tooltips: UI elements are explained with tooltips and descriptions
+- Button Explanations: All buttons and UI elements have clear labels and explanations
+- End-to-End Flow: Complete user journey from login to permission usage is shown
+- No Interruptions: The entire flow is shown in one continuous screencast
+
+---
+
+ADDITIONAL NOTES
+----------------
+
+1. If pages_read_engagement and pages_manage_metadata do not appear in the OAuth consent screen (as they are Advanced Access permissions), we demonstrate the permission request flow using Graph API Explorer:
+   - Navigate to https://developers.facebook.com/tools/explorer/
+   - Select our app (App ID: 1518061046002074)
+   - Click "Generate Access Token"
+   - Show the permission selection screen where pages_read_engagement and pages_manage_metadata are visible
+
+2. The app is a web-based service that uses frontend Meta login authentication flow. Users interact with the app through a web browser, and the OAuth flow is handled through standard Meta OAuth endpoints.
+
+3. After App Review approval, these permissions will appear in the OAuth consent screen for all users.
+
+---
+
+APPROVED PERMISSIONS (Updated)
+-------------------------------
+
+The following permissions have been approved and are working correctly:
+- public_profile
+- instagram_business_basic
+- instagram_business_manage_messages
+- pages_show_list
+- instagram_manage_messages
+- instagram_basic
+
+These permissions are already in use and functioning as expected in our service.
+
+---
+
+CONTACT INFORMATION
+-------------------
+
+If you have any questions or need clarification about the screencast or permission usage, please contact us through the App Review dashboard.
+

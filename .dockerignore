@@ -1,0 +1,51 @@
+# Exclude python environment and cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Exclude local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Exclude logs
+*.log
+app_debug.log
+app.log
+
+# Exclude common files but keep Docker essentials
+!.env.example
+.git/
+.github/
+.gitignore
+
+# Exclude IDE settings
+.vscode/
+.idea/
+
+# Keep Dockerfile for GCR build
+#.dockerignore
+docker-compose.yml
+deploy_gcr.sh
+
+# Exclude Local Data and Reports (CRITICAL)
+uploads/
+static/uploads/
+reports/
+temp/
+tmp/
+
+# Exclude non-production scripts and docs
+*.sh
+*.bat
+*.ps1
+*.md
+*.txt
+!requirements.txt
+
+# Exclude frontend source (only use build output if needed)
+frontend/
+node_modules/

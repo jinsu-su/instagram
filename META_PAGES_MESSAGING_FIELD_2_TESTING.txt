@@ -1,0 +1,94 @@
+=== Meta App Review - pages_messaging Testing Instructions (Field 2) ===
+
+[Copy and paste this text into the "Integration Feature Testing and Reproduction" field]
+
+---
+
+**Test Account Information:**
+
+As per Meta's requirements, we will provide a temporary test account for Facebook reviewers. The test account will have:
+- Admin role on a test Facebook Page
+- Connected Instagram Business account
+- Full access to test the messaging functionality
+
+**Test Account Details** (to be provided separately via Meta's review system):
+- Test Facebook Page: [To be provided]
+- Test Instagram Business Account: [To be provided]
+- Test User Credentials: [To be provided]
+
+**Note:** The test account will be a real Facebook account (not created through App Roles) with Tester role assigned in App Roles, as required by Meta for pages_messaging permission testing.
+
+---
+
+**Page Selection:**
+
+The test Facebook Page must meet the following requirements:
+- The page must have an Instagram Business account connected
+- The test user must have Admin or Editor role on the page
+- The page should be accessible for testing messaging functionality
+
+---
+
+**Step-by-Step Testing Guide:**
+
+**Prerequisites:**
+1. A Facebook Page with an Instagram Business account connected
+2. The test user must have admin or editor role on the page
+3. The app must be authorized with all required permissions, including pages_messaging
+
+**Step 1: Authorize the App**
+- Navigate to: https://{frontend-url}/onboard/meta
+- Click "Login with Facebook"
+- Grant all requested permissions, including pages_messaging
+- Select the Facebook Page and Instagram Business account to connect
+- Complete the authorization process
+
+**Step 2: Verify Webhook Subscription**
+- After account linking, the app automatically subscribes to page webhooks
+- Verify webhook subscription status by calling: GET /instagram/accounts/{customer_id}/webhook-status
+- Expected response: `webhook_subscribed: true` with `subscribed_fields` including `messages`
+- This demonstrates the use of pages_manage_metadata permission (for webhook subscription)
+
+**Step 3: Send a Test Message**
+- From a personal Instagram account (different from the test account), send a Direct Message to the connected Instagram Business account
+- The message should be received by the app's webhook endpoint within seconds
+- This demonstrates the pages_messaging permission is working for receiving messages
+
+**Step 4: Verify Message Reception**
+- Check the app's dashboard or logs to confirm the message was received
+- The app should display the incoming message and can trigger automated responses
+- This verifies the webhook subscription is functioning correctly
+
+**Step 5: Send a Response Message**
+- Use the app's interface to send a response message to the customer
+- The message should be delivered to the customer's Instagram account
+- Verify the message appears in the customer's Instagram Direct Messages
+- This demonstrates the pages_messaging permission is working for sending customer support messages
+
+**Step 6: Verify Complete Messaging Workflow**
+- Confirm the complete workflow: receive message → process → send response
+- Verify that automated responses (if configured) are working correctly
+- This demonstrates the full functionality of the pages_messaging permission
+
+---
+
+**Testing Checklist:**
+
+✅ App authorization with pages_messaging permission
+✅ Webhook subscription successful (pages_manage_metadata usage)
+✅ Message reception via webhook (pages_messaging usage)
+✅ Message sending via Instagram Messaging API (pages_messaging usage)
+✅ Automated response system (if configured)
+✅ Complete messaging workflow functioning
+
+---
+
+**Additional Notes:**
+
+- All testing should be performed using a real Facebook account (not created through App Roles)
+- The test account should have Tester role assigned in App Roles
+- The test Facebook Page should have an active Instagram Business account connected
+- Messages should be sent from a different Instagram account to properly test the messaging functionality
+
+---
+

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="none" />
+  <!-- Center the 1024x571 logo vertically (1024 - 571) / 2 = 226.5 -->
+  <image href="aidm-logo-removebg.png" x="0" y="226" width="1024" height="571" preserveAspectRatio="xMidYMid meet" />
+</svg>
