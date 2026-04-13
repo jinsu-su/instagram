@@ -12,9 +12,6 @@ const isLocalhost = typeof window !== "undefined" && (
   window.location.hostname === ""
 )
 
-// ngrok 환경 감지
-const isNgrok = typeof window !== "undefined" &&
-  window.location.hostname.includes("ngrok-free.app")
 
 const defaultLocalUrl = "http://localhost:8000";
 

@@ -15,7 +15,7 @@ import VerificationResult from './pages/VerificationResult';
 import VerifyEmail from './pages/VerifyEmail';
 import Pricing from './pages/Pricing';
 import { PrivateRoute, PublicRoute } from './components/PrivateRoute';
-import { useEffect } from 'react';
+
 
 function App() {
   // Handle double slashes in URL (common in email links)
