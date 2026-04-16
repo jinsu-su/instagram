@@ -43,8 +43,14 @@ const VerifyEmail = () => {
     }, [searchParams, navigate]);
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-            <div className="text-center space-y-4">
+        <div className="min-h-screen flex items-center justify-center bg-white selection:bg-indigo-100 font-sans relative overflow-hidden">
+            {/* Ambient Background */}
+            <div className="fixed inset-0 pointer-events-none z-0">
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-gradient-to-r from-indigo-100/40 to-purple-100/40 rounded-full blur-[120px] opacity-60"></div>
+                <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[50%] bg-gradient-to-l from-blue-100/40 to-cyan-100/40 rounded-full blur-[100px] opacity-50"></div>
+                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
+            </div>
+            <div className="text-center space-y-4 relative z-10">
                 <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto" />
                 <p className="text-slate-600 font-medium text-lg">이메일 인증을 처리 중입니다...</p>
             </div>

@@ -30,34 +30,13 @@ export default function InstagramMetaOnboardPage() {
     return params.get("customer_id") || ""
   }, [location.search])
 
-  const isNewFromQuery = useMemo(() => {
-    const params = new URLSearchParams(location.search)
-    return params.get("is_new") === "true"
-  }, [location.search])
-
   const [customerId, setCustomerId] = useState(customerIdFromQuery)
-  const [isNewCustomer, setIsNewCustomer] = useState(isNewFromQuery)
-  const [submitSuccess, setSubmitSuccess] = useState(false)
 
   const [customerStatus, setCustomerStatus] = useState(null)
   const [statusLoading, setStatusLoading] = useState(false)
   const [statusError, setStatusError] = useState(null)
 
-  const [formValues, setFormValues] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    industry: "",
-    businessType: "",
-    marketingOptIn: false,
-    privacyCollection: false,
-    privacyProcessing: false,
-    termsAgreement: false,
-    allAgreement: false,
-  })
 
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState(null)
   const [instagramOptionsVisible, setInstagramOptionsVisible] = useState(false)
   const [instagramOptionsLoading, setInstagramOptionsLoading] = useState(false)
   const [instagramOptionsError, setInstagramOptionsError] = useState(null)
@@ -119,24 +98,7 @@ export default function InstagramMetaOnboardPage() {
     }
   }, [])
 
-  const loadCustomerForForm = useCallback(async (id) => {
-    try {
-      const data = await fetchJson(`/admin/customers/${id}`)
-      // Meta에서 가져온 임시 이메일(pseudo_email)인 경우 빈 값으로 표시
-      const email = data.email && !data.email.includes("@facebook.com") ? data.email : ""
-      setFormValues((prev) => ({
-        ...prev,
-        name: data.name || "",
-        email: email || "",
-        phone: data.phone || "",
-        industry: data.industry || "",
-        businessType: data.business_type || "",
-        marketingOptIn: data.marketing_opt_in || false,
-      }))
-    } catch (error) {
-      
-    }
-  }, [fetchJson])
+
 
   const loadCustomerStatus = useCallback(async (id) => {
     setStatusLoading(true)
@@ -222,8 +184,6 @@ export default function InstagramMetaOnboardPage() {
 
   useEffect(() => {
     setCustomerId(customerIdFromQuery)
-    setIsNewCustomer(isNewFromQuery)
-    setSubmitSuccess(false)
 
     // customer_id를 로컬 스토리지에 저장
     if (customerIdFromQuery) {
@@ -240,7 +200,7 @@ export default function InstagramMetaOnboardPage() {
       setPageIdMissing(true)
       setInstagramLinkSuccess("Instagram account linked! Facebook login is required to receive messages.")
     }
-  }, [customerIdFromQuery, isNewFromQuery, navigate])
+  }, [customerIdFromQuery, navigate])
 
   useEffect(() => {
     if (!isInstagramApiConfigured || !customerId) {
@@ -249,16 +209,7 @@ export default function InstagramMetaOnboardPage() {
     void loadCustomerStatus(customerId)
   }, [customerId, isInstagramApiConfigured, loadCustomerStatus])
 
-  // customerStatus가 로드된 후 폼 데이터를 로드
-  useEffect(() => {
-    if (!isInstagramApiConfigured || !customerId || !customerStatus) {
-      return
-    }
-    // is_new가 true이거나, 고객 정보가 비어있으면 폼 데이터 로드
-    if (isNewCustomer || !customerStatus.phone || !customerStatus.industry) {
-      void loadCustomerForForm(customerId)
-    }
-  }, [customerStatus, customerId, isInstagramApiConfigured, isNewCustomer, loadCustomerForForm])
+
 
   useEffect(() => {
     setInstagramLinkSuccess(null)
@@ -393,101 +344,7 @@ export default function InstagramMetaOnboardPage() {
     }
   }
 
-  const handleFormChange = (field, value) => {
-    setFormValues((prev) => {
-      const updated = { ...prev, [field]: value }
-      // 전체 동의 처리
-      if (field === "allAgreement") {
-        updated.privacyCollection = value
-        updated.privacyProcessing = value
-        updated.termsAgreement = value
-        updated.marketingOptIn = value
-      }
-      // 필수 약관 동의 시 전체 동의 체크
-      if (field === "privacyCollection" || field === "privacyProcessing" || field === "termsAgreement") {
-        updated.allAgreement = updated.privacyCollection && updated.privacyProcessing && updated.termsAgreement && updated.marketingOptIn
-      }
-      // 마케팅 동의는 필수가 아니므로 전체 동의와 별도로 처리
-      return updated
-    })
-  }
 
-  const handleCreateCustomer = async (e) => {
-    e.preventDefault()
-    setSubmitting(true)
-    setSubmitError(null)
-
-    // 필수 입력 필드 확인
-    if (!formValues.email || !formValues.email.trim()) {
-      setSubmitError("Please enter your email address.")
-      setSubmitting(false)
-      return
-    }
-
-    // 이메일 형식 검증
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(formValues.email.trim())) {
-      setSubmitError("Please enter a valid email address.")
-      setSubmitting(false)
-      return
-    }
-
-    // 필수 약관 동의 확인
-    if (!formValues.privacyCollection || !formValues.privacyProcessing || !formValues.termsAgreement) {
-      setSubmitError("Please agree to the required terms.")
-      setSubmitting(false)
-      return
-    }
-
-    try {
-      const payload = {
-        name: formValues.name.trim(),  // 공백 제거
-        email: formValues.email.trim(),  // 공백 제거
-        phone: formValues.phone || null,
-        industry: formValues.industry || null,
-        business_type: formValues.businessType || null,
-        marketing_opt_in: formValues.marketingOptIn || false,
-      }
-
-      // is_new 파라미터 확인
-      const urlParams = new URLSearchParams(window.location.search)
-      const isNew = urlParams.get("is_new") === "true"
-
-      if (customerId) {
-        // customerId가 있으면 항상 업데이트 (is_new와 무관)
-        // is_new=true는 폼 표시 여부만 결정하고, 저장 시에는 업데이트
-        await fetchJson(`/admin/customers/${customerId}`, {
-          method: "PUT",
-          body: JSON.stringify(payload),
-        })
-      } else {
-        // customerId가 없을 때만 새로 생성
-        const response = await fetchJson("/admin/customers", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        })
-        // 새로 생성된 customer_id로 URL 업데이트
-        if (response.id) {
-          const newUrl = new URL(window.location)
-          newUrl.searchParams.set("customer_id", response.id)
-          newUrl.searchParams.delete("is_new")
-          window.history.replaceState({}, "", newUrl.toString())
-        }
-      }
-
-      setSubmitSuccess(true)
-      setIsNewCustomer(false)
-      setInstagramOptionsVisible(true)
-      void loadInstagramOptions()
-      const params = new URLSearchParams(location.search)
-      params.delete("is_new")
-      navigate({ search: params.toString() })
-    } catch (error) {
-      setSubmitError(error.message || "An error occurred while saving customer information.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   const handleStartMetaLogin = async () => {
     try {
@@ -497,21 +354,21 @@ export default function InstagramMetaOnboardPage() {
       if (data.authorization_url) {
         window.location.href = data.authorization_url
       } else {
-        setSubmitError("Failed to retrieve login URL.")
+        setInstagramOptionsError("Failed to retrieve login URL.")
       }
     } catch (error) {
-      setSubmitError(error.message || "An error occurred while starting Meta login.")
+      setInstagramOptionsError(error.message || "An error occurred while starting Meta login.")
     }
   }
 
   if (!isInstagramApiConfigured) {
     return (
-      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-          <div className="absolute top-40 right-10 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
-          <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
+      <div className="min-h-screen relative overflow-hidden bg-white selection:bg-indigo-100 font-sans">
+        {/* Ambient Background */}
+        <div className="fixed inset-0 pointer-events-none z-0">
+          <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-gradient-to-r from-indigo-100/40 to-purple-100/40 rounded-full blur-[120px] opacity-60"></div>
+          <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[50%] bg-gradient-to-l from-blue-100/40 to-cyan-100/40 rounded-full blur-[100px] opacity-50"></div>
+          <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
         </div>
         <div className="min-h-screen flex items-center justify-center p-6 relative z-10">
           <Card className="max-w-xl w-full shadow-2xl bg-white/80 backdrop-blur-xl">
@@ -530,12 +387,12 @@ export default function InstagramMetaOnboardPage() {
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-purple-100 via-pink-50 to-blue-100">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute top-40 right-10 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-1/3 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
+    <div className="min-h-screen relative overflow-hidden bg-white selection:bg-indigo-100 font-sans">
+      {/* Ambient Background */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-gradient-to-r from-indigo-100/40 to-purple-100/40 rounded-full blur-[120px] opacity-60"></div>
+        <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[50%] bg-gradient-to-l from-blue-100/40 to-cyan-100/40 rounded-full blur-[100px] opacity-50"></div>
+        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-6 relative z-10">
@@ -568,18 +425,7 @@ export default function InstagramMetaOnboardPage() {
           </div>
         </div>
 
-        {submitSuccess && (
-          <div className="p-4 bg-green-500/20 text-green-900 rounded-2xl border border-green-300/50 shadow-lg shadow-green-500/20 backdrop-blur-lg">
-            고객 정보가 성공적으로 저장되었습니다.
-          </div>
-        )}
 
-        {submitError && (
-          <div className="p-4 bg-red-500/20 text-red-900 rounded-2xl border border-red-300/50 shadow-lg shadow-red-500/20 backdrop-blur-lg flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" />
-            <span>{safeString(submitError)}</span>
-          </div>
-        )}
 
         {statusLoading && !customerStatus && (
           <div className="relative group">
@@ -695,192 +541,6 @@ export default function InstagramMetaOnboardPage() {
               </Card>
             </div>
 
-            {/* 고객 정보 입력 폼 - isNewCustomer일 때만 표시 (Instagram 연동 완료 여부와 무관) */}
-            {isNewCustomer ? (
-              <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 rounded-3xl blur-2xl opacity-30 group-hover:opacity-50 transition duration-1000"></div>
-                <Card className="relative bg-white/80 backdrop-blur-xl shadow-2xl">
-                  <CardHeader>
-                    <CardTitle className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">고객 정보 입력</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleCreateCustomer} className="space-y-6">
-                      <div>
-                        <label className="text-sm font-medium text-gray-500 mb-2 block">
-                          이름 <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formValues.name || ""}
-                          onChange={(e) => handleFormChange("name", e.target.value)}
-                          required
-                          className="w-full p-3 border rounded"
-                          placeholder="이름을 입력해 주세요"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-sm font-medium text-gray-500 mb-2 block">
-                          이메일 주소 <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="email"
-                          value={formValues.email || ""}
-                          onChange={(e) => handleFormChange("email", e.target.value)}
-                          required
-                          className="w-full p-3 border rounded"
-                          placeholder="이메일 주소를 입력해 주세요"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-sm font-medium text-gray-500 mb-2 block">
-                          전화번호 <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="tel"
-                          value={formValues.phone || ""}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/[^0-9]/g, "")
-                            if (value.length <= 11) {
-                              handleFormChange("phone", value)
-                            }
-                          }}
-                          required
-                          maxLength={11}
-                          className="w-full p-3 border rounded"
-                          placeholder="하이픈(-) 없이 숫자만 입력해 주세요"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-sm font-medium text-gray-500 mb-2 block">
-                          업종
-                        </label>
-                        <select
-                          value={formValues.industry || ""}
-                          onChange={(e) => handleFormChange("industry", e.target.value)}
-                          className="w-full p-3 border rounded"
-                        >
-                          <option value="">업종 선택</option>
-                          <option value="IT">IT/소프트웨어</option>
-                          <option value="ecommerce">이커머스</option>
-                          <option value="retail">유통/소매</option>
-                          <option value="service">서비스</option>
-                          <option value="manufacturing">제조</option>
-                          <option value="healthcare">의료/헬스케어</option>
-                          <option value="education">교육</option>
-                          <option value="finance">금융</option>
-                          <option value="other">기타</option>
-                        </select>
-                      </div>
-
-                      {/* 약관 동의 */}
-                      <div className="border-t pt-6 space-y-4">
-                        <div className="flex items-center gap-3 pb-3 border-b">
-                          <input
-                            type="checkbox"
-                            id="allAgreement"
-                            checked={formValues.allAgreement}
-                            onChange={(e) => handleFormChange("allAgreement", e.target.checked)}
-                            className="w-5 h-5"
-                          />
-                          <label htmlFor="allAgreement" className="text-base font-semibold text-gray-900 cursor-pointer">
-                            Agree to All
-                          </label>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3">
-                            <input
-                              type="checkbox"
-                              id="privacyCollection"
-                              checked={formValues.privacyCollection}
-                              onChange={(e) => handleFormChange("privacyCollection", e.target.checked)}
-                              required
-                              className="w-5 h-5 mt-0.5"
-                            />
-                            <label htmlFor="privacyCollection" className="text-sm text-gray-700 cursor-pointer flex-1">
-                              <span className="text-red-500">*</span> 개인정보 수집 및 이용에 동의합니다. (필수)
-                              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs">
-                                [약관 보기]
-                              </a>
-                            </label>
-                          </div>
-
-                          <div className="flex items-start gap-3">
-                            <input
-                              type="checkbox"
-                              id="privacyProcessing"
-                              checked={formValues.privacyProcessing}
-                              onChange={(e) => handleFormChange("privacyProcessing", e.target.checked)}
-                              required
-                              className="w-5 h-5 mt-0.5"
-                            />
-                            <label htmlFor="privacyProcessing" className="text-sm text-gray-700 cursor-pointer flex-1">
-                              <span className="text-red-500">*</span> 개인정보 처리 위탁 공지에 동의합니다. (필수)
-                              <a href="/privacy-processing" target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs">
-                                [약관 보기]
-                              </a>
-                            </label>
-                          </div>
-
-                          <div className="flex items-start gap-3">
-                            <input
-                              type="checkbox"
-                              id="termsAgreement"
-                              checked={formValues.termsAgreement}
-                              onChange={(e) => handleFormChange("termsAgreement", e.target.checked)}
-                              required
-                              className="w-5 h-5 mt-0.5"
-                            />
-                            <label htmlFor="termsAgreement" className="text-sm text-gray-700 cursor-pointer flex-1">
-                              <span className="text-red-500">*</span> 서비스 이용약관에 동의합니다. (필수)
-                              <a href="/terms" target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs">
-                                [약관 보기]
-                              </a>
-                            </label>
-                          </div>
-
-                          <div className="flex items-start gap-3 pt-2 border-t">
-                            <input
-                              type="checkbox"
-                              id="marketingOptIn"
-                              checked={formValues.marketingOptIn}
-                              onChange={(e) => handleFormChange("marketingOptIn", e.target.checked)}
-                              className="w-5 h-5 mt-0.5"
-                            />
-                            <label htmlFor="marketingOptIn" className="text-sm text-gray-700 cursor-pointer flex-1">
-                              마케팅 정보 수신 및 활용에 동의합니다. (선택)
-                              <p className="text-xs text-gray-500 mt-1">
-                                최신 소식, 이벤트, 혜택 정보를 빠르게 받아보세요. (채널: 카카오톡, SMS)
-                              </p>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      <Button
-                        type="submit"
-                        disabled={submitting || !formValues.privacyCollection || !formValues.privacyProcessing || !formValues.termsAgreement}
-                        className="w-full py-7 text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-2xl hover:shadow-purple-500/50 transform transition-all hover:scale-105"
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                            저장 중...
-                          </>
-                        ) : (
-                          "저장"
-                        )}
-                      </Button>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : null}
-
-            {!isNewCustomer && (
               <>
                 {pageIdMissing ? (
                   <div className="relative group">
@@ -1359,7 +1019,6 @@ export default function InstagramMetaOnboardPage() {
                   </div>
                 )}
               </>
-            )}
           </>
         )}
       </div>

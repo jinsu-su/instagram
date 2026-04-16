@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Loader2, Mail, ArrowLeft, ArrowRight, Sparkles, CheckCircle2 } from "lucide-react";
-import { apiFetch, safeString } from '../lib/api';
+import { apiFetch, safeString, translateError } from '../lib/api';
 
 const ForgotPassword = () => {
     const navigate = useNavigate();
@@ -32,7 +32,7 @@ const ForgotPassword = () => {
 
             setIsSubmitted(true);
         } catch (err) {
-            setError(err.message);
+            setError(translateError(err));
         } finally {
             setIsLoading(false);
         }

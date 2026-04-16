@@ -35,7 +35,9 @@ if settings.environment == "development":
     allowed_origins.extend([
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:5173", # Vite default
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:5173",  # Vite default
     ])
 
 app.add_middleware(
@@ -342,9 +344,12 @@ async def startup_event() -> None:
     logger.info("✅ Token auto-refresh scheduler started (runs every 24h)")
 
 
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
 async def health_check():
-    return {"status": "ok", "service": "instagram-auth-service"}
+    """Health check - returns minimal info in production."""
+    if settings.environment == "production":
+        return {"status": "ok"}
+    return {"status": "ok", "service": "instagram-auth-service", "env": settings.environment}
 
 
 

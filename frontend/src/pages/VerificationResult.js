@@ -14,8 +14,15 @@ const VerificationResult = () => {
     const isSuccess = !error;
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-            <Card className="w-full max-w-md shadow-xl border-none">
+        <div className="min-h-screen flex items-center justify-center bg-white selection:bg-indigo-100 font-sans relative overflow-hidden p-4">
+            {/* Ambient Background */}
+            <div className="fixed inset-0 pointer-events-none z-0">
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-gradient-to-r from-indigo-100/40 to-purple-100/40 rounded-full blur-[120px] opacity-60"></div>
+                <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[50%] bg-gradient-to-l from-blue-100/40 to-cyan-100/40 rounded-full blur-[100px] opacity-50"></div>
+                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
+            </div>
+
+            <Card className="w-full max-w-md shadow-2xl bg-white/80 backdrop-blur-3xl border-none rounded-[2.5rem] relative z-10">
                 <CardHeader className={`text-center pb-2 ${isSuccess ? 'bg-emerald-50/50' : 'bg-rose-50/50'} rounded-t-xl`}>
                     <div className="mx-auto mb-4 p-3 bg-white rounded-full shadow-sm w-fit">
                         {isSuccess ? (
@@ -56,8 +63,6 @@ const VerificationResult = () => {
                 </CardContent>
             </Card>
 
-            {/* Background decoration */}
-            <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sky-100 via-slate-50 to-slate-50 opacity-40"></div>
         </div>
     );
 };

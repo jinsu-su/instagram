@@ -35,6 +35,35 @@ const extractErrorMessage = (detail) => {
     return final;
 };
 
+
+export const translateError = (err) => {
+  if (!err) return '요청 처리 중 오류가 발생했습니다.';
+  const msg = err.message || String(err);
+
+  // Network / server unreachable
+  if (
+    msg.toLowerCase().includes('failed to fetch') ||
+    msg.toLowerCase().includes('networkerror') ||
+    msg.toLowerCase().includes('network request failed') ||
+    msg.toLowerCase().includes('load failed')
+  ) {
+    return '서버와 연결할 수 없습니다. 네트워크 상태를 확인하거나 잠시 후 다시 시도해 주세요.';
+  }
+
+  // Timeout
+  if (msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('timed out')) {
+    return '요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.';
+  }
+
+  // Auth errors
+  if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
+    return '인증이 만료되었습니다. 다시 로그인해 주세요.';
+  }
+
+  // Return as-is if already Korean or from server
+  return msg || '요청 처리 중 예기치 못한 오류가 발생했습니다.';
+};
+
 export const apiFetch = async (endpoint, options = {}) => {
     const token = localStorage.getItem('access_token');
 

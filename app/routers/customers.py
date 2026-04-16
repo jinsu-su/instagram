@@ -219,12 +219,25 @@ async def get_ai_insights(
         }
 
 
-@router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", include_in_schema=False, response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
 async def create_customer(
     payload: CustomerCreateRequest,
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     service: CustomerService = Depends(CustomerService),
 ) -> CustomerResponse:
+    """
+    [Internal Admin Only] 이 엔드포인트는 외부 접근이 제한됩니다.
+    일반 사용자는 반드시 /auth/signup 을 통해 가입해야 합니다.
+    - include_in_schema=False: Swagger 문서에서 숨김 처리
+    - is_superuser 권한 체크: 관리자만 직접 계정 생성 가능
+    """
+    # Superuser 권한 체크 (일반 사용자 직접 생성 차단)
+    if not getattr(current_user, 'is_superuser', False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="이 작업은 관리자만 수행할 수 있습니다. 일반 회원가입은 /auth/signup 을 이용해주세요."
+        )
     try:
         customer = await service.create_customer(db=db, payload=payload)
         return customer

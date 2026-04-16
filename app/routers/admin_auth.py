@@ -59,6 +59,15 @@ def get_password_hash(password):
 
 @router.post("/signup")
 async def signup(request: SignupRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    # Rate Limiting: 3 signups per hour per email to prevent spamming
+    rl_key = f"signup:{request.email}"
+    signup_rl = await rate_limiter.allow(rl_key, max_calls=3, window_seconds=3600)
+    if not signup_rl.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="이메일 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+            headers={"Retry-After": str(int(signup_rl.retry_after_seconds))}
+        )
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="비밀번호가 일치하지 않습니다.")
     
@@ -142,7 +151,8 @@ async def get_current_user(
         logger.info(f"🔑 get_current_user: Received token (first 20 chars): {token[:20]}...")
         
         payload = decode_access_token(token)
-        logger.info(f"🔑 get_current_user: Decoded payload: {payload}")
+        # Security: Do not log the full payload in production to avoid leaking PII/metadata
+        # logger.info(f"🔑 get_current_user: Decoded payload: {payload}")
         
         if not payload or "sub" not in payload:
             logger.error("❌ get_current_user: Invalid payload or missing 'sub'")
@@ -204,6 +214,15 @@ async def verify_account(token: str, email: Optional[str] = None, db: AsyncSessi
 
 @router.post("/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    # Rate Limiting: 3 reset requests per hour per email
+    rl_key = f"forgot_password:{request.email}"
+    reset_rl = await rate_limiter.allow(rl_key, max_calls=3, window_seconds=3600)
+    if not reset_rl.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="비밀번호 재설정 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
+            headers={"Retry-After": str(int(reset_rl.retry_after_seconds))}
+        )
     """
     Generate a reset token and send email.
     Security: Returns generic message even if email doesn't exist (anti-enumeration).

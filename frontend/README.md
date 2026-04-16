@@ -33,7 +33,6 @@ REACT_APP_INSTAGRAM_API_BASE_URL=https://your-ngrok-url.ngrok-free.app
 
 - `/onboard/meta` - Meta 온보딩 페이지
 - `/instagram-integration-console` - 통합 콘솔 (메인)
-- `/instagram-ai-chatbot` - AI 챗봇 소개
 - `/instagram-integration-guide` - 연동 가이드
 
 

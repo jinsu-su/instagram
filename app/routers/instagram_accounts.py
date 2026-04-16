@@ -1215,15 +1215,18 @@ async def subscribe_webhook(
 
 
 
-@router.post("/webhook/subscribe-all-customers")
+@router.post("/webhook/subscribe-all-customers", include_in_schema=False)
 async def subscribe_all_customers(
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
 ) -> dict:
     """
     모든 활성 고객의 Instagram 계정을 웹훅에 일괄 구독합니다.
-    새로운 웹훅 엔드포인트를 배포한 후 한 번 실행해주면 좋습니다.
+    [Internal Admin Only] 관리자 권한이 필요합니다.
     """
+    if not getattr(current_user, 'is_superuser', False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 전용 기능입니다.")
     try:
         results = await oauth_service.subscribe_all_webhooks(db)
         return results
@@ -1238,13 +1241,15 @@ async def subscribe_all_customers(
 
 
 
-@router.get("/webhook/all-approved-accounts")
+@router.get("/webhook/all-approved-accounts", include_in_schema=False)
 async def get_all_approved_accounts(
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     웹훅용: 모든 승인된 Instagram 계정 목록 반환
+    [Internal Admin Only] 보안을 위해 관리자 권한이 필요합니다.
     
     이 API는 Supabase에 등록된 모든 승인된 고객의 Instagram 계정 정보를 반환합니다.
     웹훅에서 받은 entry.id가 이 목록에 있는지 확인하여 계정을 식별할 수 있습니다.
@@ -1302,12 +1307,14 @@ async def get_all_approved_accounts(
         )
 
 
-@router.post("/admin/fix-db-constraint")
+@router.post("/admin/fix-db-constraint", include_in_schema=False)
 async def fix_db_constraint(
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """
     Instagram Account 테이블의 customer_id unique constraint 제거
+    [Internal Admin Only] 관리자만 실행 가능합니다.
     여러 계정 지원을 위해 필요
     """
     try:
@@ -1354,16 +1361,17 @@ async def fix_db_constraint(
 async def get_ig_insights(
     customer_id: UUID = Path(..., description="고객 ID"),
     force_refresh: bool = Query(False, description="캐시 무시 및 즉시 업데이트 여부"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     Instagram 계정 정보를 조회합니다. (instagram_manage_insights / instagram_basic)
-    - username, profile_picture_url, followers_count, media_count
-    - 최근 미디어 5개 (캡션, 좋아요/댓글, 타입, 썸네일/미디어 URL)
-    
-    Rate Limiting: 30초 이내 중복 호출 시 캐시된 데이터 반환
+    [Security] 본인의 데이터만 조회 가능하도록 권한을 체크합니다.
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access IG insights for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="본인의 인스타그램 정보만 조회할 수 있습니다.")
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.instagram_user_id:

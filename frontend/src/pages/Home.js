@@ -31,6 +31,8 @@ import {
     MousePointer2
 } from "lucide-react";
 import Navbar from '../components/Navbar';
+import Footer from '../components/Footer';
+import { translations } from '../data/translations';
 
 const features = [
     {
@@ -151,6 +153,7 @@ const Home = () => {
     const navigate = useNavigate();
     const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [currentLang, setCurrentLang] = useState('KR');
 
     useEffect(() => {
         const handleScroll = () => {
@@ -642,12 +645,26 @@ const Home = () => {
                         <p className="text-gray-500">AIDM에 대해 궁금한 점을 확인하세요.</p>
                     </div>
 
-                    <div className="space-y-4">
-                        <FAQItem q="AIDM은 정확히 어떤 서비스인가요?" a="AIDM은 AI 기반의 SNS 마케팅 파트너입니다. 단순히 댓글을 달아주는 도구가 아니라, 브랜드 페르소나를 학습해 실시간 응대, 리드 발굴, 비즈니스 기회 분석까지 전 과정을 자동화해주는 'AI 마케팅 팀'입니다." />
-                        <FAQItem q="어떤 채널을 지원하나요?" a="현재 Instagram 자동화 서비스를 최우선으로 지원하며, 안정적인 마케팅 성과를 위해 집중하고 있습니다." />
-                        <FAQItem q="AI가 마음에 들지 않는 답변을 남기면 어떡하나요?" a="걱정하지 마세요. 모든 자동화 응대는 설정된 페르소나와 가이드라인을 철저히 따릅니다. 실시간 타임라인에서 AI의 활동을 모니터링하고 언제든 응대 로직을 수정할 수 있어 안심하고 사용하실 수 있습니다." />
-                        <FAQItem q="요금은 어떻게 부과되나요?" a="일정 사용량까지는 무료로 사용하실 수 있으며, 이후에는 사용량에 따라 합리적인 요금이 부과됩니다. 사용량이 초과되기 전에 미리 알림을 드리니 안심하고 사용하세요." />
-                    </div>
+                        <FAQItem 
+                            q="AIDM은 어떤 서비스인가요?" 
+                            a="AIDM은 인스타그램 마케팅의 모든 과정을 AI로 자동화하는 지능형 솔루션입니다. 공식 Meta API를 기반으로 댓글, DM, 스토리 소통을 자동화하며, 잠재 고객의 의도를 분석해 실제 매출 기회를 포착하는 '24시간 퍼스널 AI 마케팅 팀' 역할을 수행합니다." 
+                        />
+                        <FAQItem 
+                            q="계정 보안이나 정책 위반 위험은 없나요?" 
+                            a="AIDM은 Meta 공식 API 가이드라인을 100% 준수합니다. 비밀번호 공유 없이 공식 OAuth 인증 방식으로 안전하게 연동되며, 인위적인 스팸 활동이 아닌 브랜드 페르소나에 기반한 자연스러운 소통을 지향하므로 계정 정지 등의 위험으로부터 안전합니다." 
+                        />
+                        <FAQItem 
+                            q="도입 및 초기 설정이 복잡하지 않나요?" 
+                            a="단 1분이면 충분합니다. 별도의 정보 입력이나 개발 지식 없이 자신의 인스타그램 계정 연동만으로 즉시 시작할 수 있습니다. 브랜드의 말투나 답변 가이드라인 또한 AI가 이전 활동을 분석하여 최적의 제안을 드립니다." 
+                        />
+                        <FAQItem 
+                            q="AI가 남기는 답변을 직접 제어할 수 있나요?" 
+                            a="네, 대시보드의 실시간 타임라인을 통해 AI의 모든 활동을 1초 단위로 모니터링할 수 있습니다. 특정 키워드에 대한 응대 규칙을 즉시 수정하거나, 중요한 비즈니스 상담은 알림을 받고 직접 개입하여 처리할 수 있습니다." 
+                        />
+                        <FAQItem 
+                            q="서비스 이용 요금은 어떻게 되나요?" 
+                            a="성장을 응원하는 마음으로 누구나 무료로 첫 시작을 하실 수 있습니다. 이후 사용량(응대 횟수)과 계정 규모에 따라 합리적인 요금제가 준비되어 있으며, 요금 발생 전 미리 상세한 안내를 드려 안심하고 사용하실 수 있습니다." 
+                        />
                 </div>
             </section>
 
@@ -727,20 +744,7 @@ const Home = () => {
             </section>
 
             {/* Footer */}
-            <footer className="py-12 px-6 border-t border-gray-100 bg-white">
-                <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
-                    <div className="flex items-center gap-2 opacity-50 grayscale hover:grayscale-0 hover:opacity-100 transition-all">
-                        <img src="/assets/aidm-logo-ultra.png" alt="AIDM" className="h-8 w-auto" />
-                        <span className="font-bold text-gray-900">AIDM</span>
-                    </div>
-                    <div className="flex gap-8 text-sm font-bold text-gray-400">
-                        <a href="#" className="hover:text-gray-900">Privacy</a>
-                        <a href="#" className="hover:text-gray-900">Terms</a>
-                        <a href="#" className="hover:text-gray-900">Contact</a>
-                    </div>
-                    <p className="text-sm text-gray-400 font-medium">© 2026 AIDM Corp.</p>
-                </div>
-            </footer>
+            <Footer t={translations[currentLang]} />
         </div>
     );
 };

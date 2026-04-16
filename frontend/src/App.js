@@ -4,8 +4,6 @@ import './App.css';
 import InstagramMetaOnboardPage from './pages/InstagramMetaOnboard';
 import InstagramIntegrationConsolePage from './pages/InstagramIntegrationConsole';
 import SignupPage from './pages/SignupPage';
-import InstagramAIChatbotPage from './pages/InstagramAIChatbot';
-import InstagramIntegrationGuidePage from './pages/InstagramIntegrationGuide';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
 import Home from './pages/Home';
@@ -108,8 +106,8 @@ function App() {
 
           {/* 공개 라우트 */}
           <Route path="/instagram-integration-console" element={<InstagramIntegrationConsolePage />} />
-          <Route path="/instagram-ai-chatbot" element={<InstagramAIChatbotPage />} />
-          <Route path="/instagram-integration-guide" element={<InstagramIntegrationGuidePage />} />
+
+
 
           {/* Email Verification Result */}
           <Route path="/verify-email" element={<VerifyEmail />} />

@@ -183,17 +183,17 @@ async def cancel_subscription(
         raise HTTPException(status_code=404, detail="Subscription not found")
     return {"status": "success", "message": "Subscription canceled successfully"}
 
-@router.post("/refresh-recurring")
+@router.post("/refresh-recurring", include_in_schema=False)
 async def refresh_recurring_payments(
     current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Manually trigger the recurring payment process for all due subscriptions.
-    Only authorized users can call this.
+    [Internal Admin Only] 관리자 권한이 필요합니다.
     """
-    # Optional: Add admin check here
-    # if not current_user.is_admin: raise HTTPException(...)
+    if not getattr(current_user, 'is_superuser', False):
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="관리자 전용 기능입니다.")
     
     service = SubscriptionService(db)
     results = await service.process_due_subscriptions()

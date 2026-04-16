@@ -6,7 +6,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Loader2, Mail, Lock, User, ArrowRight, Eye, EyeOff } from "lucide-react";
-import { apiFetch, safeString } from '../lib/api';
+import { apiFetch, safeString, translateError } from '../lib/api';
 
 const SignupPage = () => {
     const navigate = useNavigate();
@@ -51,7 +51,7 @@ const SignupPage = () => {
 
             setSuccess(true);
         } catch (err) {
-            setError(err.message);
+            setError(translateError(err));
         } finally {
             setIsLoading(false);
         }
