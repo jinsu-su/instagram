@@ -44,7 +44,7 @@ echo "☁️ Cloud Run에 서비스를 배포합니다..."
   --max-instances 2 \
   --concurrency 80 \
   --cpu 1 \
-  --memory 512Mi \
+  --memory 1024Mi \
   --timeout 300 \
   --env-vars-file .env.json
 

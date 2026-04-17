@@ -39,7 +39,7 @@ EXPOSE 8080
 
 # Command to run the application using Gunicorn and Uvicorn workers
 CMD gunicorn app.main:app \
-    --workers 4 \
+    --workers 2 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:$PORT \
     --timeout 120

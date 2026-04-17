@@ -102,6 +102,10 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Layer 0 (Entry Point): ProxyHeaders (Detects HTTPS from X-Forwarded-Proto)
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 
 app.include_router(api_router)
 

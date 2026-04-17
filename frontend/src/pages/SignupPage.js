@@ -58,35 +58,15 @@ const SignupPage = () => {
         }
     };
 
-    const handleGoogleLogin = async () => {
-        window.alert('구글 로그인 시작 (v2)... API 서버: ' + INSTAGRAM_API_BASE_URL);
-        try {
-            const currentUrl = window.location.origin;
-            const onboardPath = '/dashboard';
-            const redirectUri = `${currentUrl}${onboardPath}`;
-            
-            const response = await apiFetch(`/auth/google/login?redirect_uri=${encodeURIComponent(redirectUri)}`);
-            
-            if (!response || !response.json) {
-                throw new Error("서버로부터 유효하지 않은 응답을 받았습니다.");
-            }
-
-            const data = await response.json();
-            
-            if (data.authorization_url) {
-                window.location.href = data.authorization_url;
-            } else {
-                setError("구글 로그인 URL을 가져오는 데 실패했습니다.");
-            }
-        } catch (err) {
-            console.error("Google Login Initialization Error:", err);
-            const msg = err.message || String(err);
-            if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror')) {
-                setError("서버와 연결할 수 없습니다. API 서버(api.aidm.kr) 상태를 확인해 주세요.");
-            } else {
-                setError("구글 로그인 시작 중 오류가 발생했습니다: " + msg);
-            }
-        }
+    const handleGoogleLogin = () => {
+        const currentUrl = window.location.origin;
+        const onboardPath = '/dashboard';
+        const redirectUri = `${currentUrl}${onboardPath}`;
+        
+        // 운영 환경에서 신뢰성이 높은 직접 리다이렉트 방식으로 변경
+        // 백엔드에서 302 Redirect를 통해 구글 로그인 페이지로 바로 이동합니다.
+        const authUrl = `${INSTAGRAM_API_BASE_URL}/auth/google/login/redirect?redirect_uri=${encodeURIComponent(redirectUri)}`;
+        window.location.href = authUrl;
     };
 
     if (success) {

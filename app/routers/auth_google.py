@@ -28,10 +28,33 @@ async def google_login(
     ),
     oauth_service: GoogleOAuthService = Depends(GoogleOAuthService.from_settings),
 ) -> AuthRedirect:
-    """시작용 Google OAuth URL 생성"""
+    """시작용 Google OAuth URL 생성 (JSON 반환)"""
     # 현재 서버의 주소를 감지 (localhost, ngrok, aidm.kr 등)
     base_url = f"{request.url.scheme}://{request.url.netloc}"
     return oauth_service.build_authorization_url(redirect_uri=redirect_uri, base_url=base_url)
+
+
+@router.get("/login/redirect")
+async def google_login_redirect(
+    request: Request,
+    redirect_uri: str | None = Query(
+        default=None,
+        description="로그인 후 돌아갈 프론트엔드 URL",
+    ),
+    oauth_service: GoogleOAuthService = Depends(GoogleOAuthService.from_settings),
+):
+    """구글 로그인 페이지로 직접 리다이렉트 (302)"""
+    # 현재 서버의 주소를 감지 (localhost, ngrok, aidm.kr 등)
+    scheme = request.url.scheme
+    netloc = request.url.netloc
+    
+    # 보안 및 운영 환경 대웅: localhost가 아닌 경우 공식 HTTPS 주소 사용 강제
+    if "localhost" not in netloc and "127.0.0.1" not in netloc:
+        scheme = "https"
+        
+    base_url = f"{scheme}://{netloc}"
+    auth_data = oauth_service.build_authorization_url(redirect_uri=redirect_uri, base_url=base_url)
+    return RedirectResponse(url=str(auth_data.authorization_url), status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/callback")
