@@ -84,9 +84,6 @@ class InstagramBasicOAuthService:
         }
         full_auth_url = f"{auth_url}?{httpx.QueryParams(query)}"
         
-        with open("/Users/su/Downloads/instagram/instagram-auth-service/debug_emergency.log", "a") as f:
-            f.write(f"\n[{datetime.now()}] Login URL Generated: customer_id={customer_id}, client_id={self.settings.instagram_basic_app_id}, flow=Instagram Business Login\n")
-        
         logger.info(
             "Instagram Business Login URL 생성: customer_id=%s redirect_uri=%s",
             customer_id,
@@ -163,8 +160,7 @@ class InstagramBasicOAuthService:
                 logger.error(f"No access_token found in response: {token_json}")
                 raise HTTPException(status_code=400, detail="액세스 토큰을 찾을 수 없습니다.")
 
-            with open("/Users/su/Downloads/instagram/instagram-auth-service/debug_emergency.log", "a") as f:
-                f.write(f"[{datetime.now()}] Token Exchange Success: user_id={user_id}, token_prefix={short_access_token[:10]}..., permissions={token_json.get('permissions') or short_token_data.get('permissions')}\n")
+            # Delegating success processing...
 
             # Step 2: Exchange for Long-lived token (60 days)
             # Official Business Token Exchange via Instagram endpoint

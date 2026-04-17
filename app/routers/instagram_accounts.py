@@ -2076,8 +2076,7 @@ async def get_ig_media(
             data = resp.json()
             media_list = data.get("data", []) if isinstance(data, dict) else []
             
-            with open("/Users/su/Downloads/instagram 복사본 4/instagram-auth-service/debug_emergency.log", "a") as f:
-                f.write(f"[{datetime.now()}] get_ig_media SUCCESS: Found {len(media_list)} items. Raw keys: {list(data.keys()) if isinstance(data, dict) else 'Not Dict'}\n")
+            logger.info(f"get_ig_media SUCCESS: Found {len(media_list)} items.")
 
             images = []
 
@@ -2101,8 +2100,7 @@ async def get_ig_media(
                     # 기본값은 None으로 두고, 아래에서 Business/Creator 계정인 경우 인
                 })
         else:
-             with open("/Users/su/Downloads/instagram 복사본 4/instagram-auth-service/debug_emergency.log", "a") as f:
-                f.write(f"[{datetime.now()}] get_ig_media FAILED: Status {resp.status_code}, Body: {resp.text}\n")
+            logger.error(f"get_ig_media FAILED: Status {resp.status_code}, Body: {resp.text}")
 
         # 인사이트 API 호출 (instagram_business_manage_insights 필요)
         # Business Login for Instagram을 통해 발급받은 토큰은 IG로 시작할 수 있지만 인사이트를 지원할 수 있음
