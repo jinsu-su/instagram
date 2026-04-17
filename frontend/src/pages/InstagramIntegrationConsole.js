@@ -61,6 +61,11 @@ const InstagramIntegrationConsole = () => {
       const redirectUri = `${currentUrl}${onboardPath}`;
       
       const response = await apiFetch(`/auth/google/login?redirect_uri=${encodeURIComponent(redirectUri)}`);
+      
+      if (!response || !response.json) {
+        throw new Error("서버로부터 유효하지 않은 응답을 받았습니다.");
+      }
+
       const data = await response.json();
       
       if (data.authorization_url) {
@@ -69,7 +74,13 @@ const InstagramIntegrationConsole = () => {
         setError("구글 로그인 URL을 가져오는 데 실패했습니다.");
       }
     } catch (err) {
-      setError("구글 로그인 시작 중 오류가 발생했습니다.");
+      console.error("Google Login Initialization Error:", err);
+      const msg = err.message || String(err);
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror')) {
+        setError("서버와 연결할 수 없습니다. API 서버(api.aidm.kr) 상태를 확인해 주세요.");
+      } else {
+        setError("구글 로그인 시작 중 오류가 발생했습니다: " + msg);
+      }
     }
   };
 
