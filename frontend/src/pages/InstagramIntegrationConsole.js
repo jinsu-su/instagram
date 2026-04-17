@@ -55,6 +55,7 @@ const InstagramIntegrationConsole = () => {
   };
 
   const handleGoogleLogin = async () => {
+    window.alert('구글 로그인 시작 (v2)... API 서버: ' + INSTAGRAM_API_BASE_URL);
     try {
       const currentUrl = window.location.origin;
       const onboardPath = '/dashboard';

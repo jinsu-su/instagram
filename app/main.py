@@ -32,6 +32,17 @@ app = FastAPI(
 # 1. Prepare Configuration Variables
 allowed_origins = [str(settings.frontend_base_url).rstrip("/")]
 
+# Explicitly include all variants of the production domain for CORS robustness
+production_variants = [
+    "https://aidm.kr",
+    "https://www.aidm.kr",
+    "https://aidm-frontend.pages.dev",
+]
+
+for variant in production_variants:
+    if variant not in allowed_origins:
+        allowed_origins.append(variant)
+
 # Always allow local development origins for ease of testing/debugging, 
 # while keeping the production base URL as the primary origin.
 allowed_origins.extend([
