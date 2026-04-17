@@ -27,20 +27,21 @@ async def meta_login(
     use_business_login: bool = Query(default=False, description="Use Facebook Login for Business (response_type=token) or standard OAuth (response_type=code). 기본값은 False(code 방식)로 모든 권한을 확실히 받기 위해"),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
 ) -> AuthRedirect:
-    """Start Meta OAuth flow for Facebook/Instagram permissions.
-    
-    ⚠️ 중요: use_business_login=False (기본값) 권장
-      - response_type=code 방식 사용
-      - 모든 권한(pages_read_engagement, pages_manage_metadata 등)이 토큰에 포함됨
-      - Page Access Token 획득에 필수적인 권한들이 확실히 포함됨
-    
-    use_business_login=True: Facebook Login for Business 방식 (response_type=token)
-      - Instagram 프로페셔널 계정 전환 등을 자동 처리
-      - ⚠️ 하지만 일부 권한(pages_read_engagement, pages_manage_metadata)이 토큰에 포함되지 않을 수 있음
-      - Page Access Token 획득 실패 가능성 높음
-    """
+    """JSON으로 인증 URL 반환"""
     auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login)
     return AuthRedirect(authorization_url=auth_url, state=state)
+
+
+@router.get("/login/redirect")
+async def meta_login_redirect(
+    request: Request,
+    redirect_uri: str | None = Query(default=None, description="Override onboarding redirect path after success"),
+    use_business_login: bool = Query(default=False, description="Use Facebook Login for Business"),
+    oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
+):
+    """메타(페이스북) 로그인 페이지로 직접 리다이렉트 (302)"""
+    auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login)
+    return RedirectResponse(url=str(auth_url), status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/callback")

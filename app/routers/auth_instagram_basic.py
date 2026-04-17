@@ -24,7 +24,20 @@ async def instagram_basic_login(
     redirect_uri: str | None = Query(default=None, description="연동 후 돌아갈 URL"),
     oauth_service: InstagramBasicOAuthService = Depends(InstagramBasicOAuthService.from_settings),
 ) -> AuthRedirect:
+    """JSON으로 인증 URL 반환"""
     return oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri)
+
+
+@router.get("/login/redirect")
+async def instagram_basic_login_redirect(
+    request: Request,
+    customer_id: str = Query(..., description="연동할 고객 ID"),
+    redirect_uri: str | None = Query(default=None, description="연동 후 돌아갈 URL"),
+    oauth_service: InstagramBasicOAuthService = Depends(InstagramBasicOAuthService.from_settings),
+):
+    """인스타그램 로그인 페이지로 직접 리다이렉트 (302)"""
+    auth_data = oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri)
+    return RedirectResponse(url=str(auth_data.authorization_url), status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/callback")

@@ -518,43 +518,25 @@ function Dashboard() {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Handle Instagram Business Login (Step 1)
-  const handleInstagramLogin = async () => {
-    try {
-      setLoginLoading(true);
-      const res = await apiFetch(`/auth/instagram-basic/login?customer_id=${customerId}&redirect_uri=${window.location.origin}/dashboard`);
-      if (!res.ok) throw new Error('Instagram login request failed');
-      const data = await res.json();
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-      } else {
-        throw new Error('Authorization URL not found in response');
-      }
-    } catch (err) {
-
-      showNotify('인스타그램 로그인 정보를 가져오는데 실패했습니다.', 'error', err.message);
-    } finally {
-      setLoginLoading(false);
-    }
+  const handleInstagramLogin = () => {
+    const onboardPath = '/dashboard'; 
+    const redirectUri = `${window.location.origin}${onboardPath}`;
+    
+    // 운영 환경에서 신뢰성이 높은 직접 리다이렉트 방식으로 변경
+    // 백엔드에서 302 Redirect를 통해 인스타그램 로그인 페이지로 바로 이동합니다.
+    const authUrl = `${INSTAGRAM_API_BASE_URL}/auth/instagram-basic/login/redirect?customer_id=${customerId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    window.location.href = authUrl;
   };
 
   // Handle Full Meta OAuth (Step 2 - Facebook Page Connection)
-  const handleMetaLogin = async () => {
-    try {
-      setLoginLoading(true);
-      const res = await apiFetch(`/auth/meta/login?customer_id=${customerId}&redirect_uri=${window.location.origin}/dashboard`);
-      if (!res.ok) throw new Error('Meta login request failed');
-      const data = await res.json();
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-      } else {
-        throw new Error('Authorization URL not found in response');
-      }
-    } catch (err) {
-
-      showNotify('페이스북 페이지 연결 정보를 가져오는데 실패했습니다.', 'error', err.message);
-    } finally {
-      setLoginLoading(false);
-    }
+  const handleMetaLogin = () => {
+    const onboardPath = '/dashboard';
+    const redirectUri = `${window.location.origin}${onboardPath}`;
+    
+    // 운영 환경에서 신뢰성이 높은 직접 리다이렉트 방식으로 변경
+    // 백엔드에서 302 Redirect를 통해 메타(페이스북) 로그인 페이지로 바로 이동합니다.
+    const authUrl = `${INSTAGRAM_API_BASE_URL}/auth/meta/login/redirect?redirect_uri=${encodeURIComponent(redirectUri)}`;
+    window.location.href = authUrl;
   };
 
   // AI Viral Post Maker State
