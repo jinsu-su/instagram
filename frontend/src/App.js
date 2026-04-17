@@ -1,7 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
-import InstagramMetaOnboardPage from './pages/InstagramMetaOnboard';
 import InstagramIntegrationConsolePage from './pages/InstagramIntegrationConsole';
 import SignupPage from './pages/SignupPage';
 import Dashboard from './pages/Dashboard';
@@ -101,8 +100,6 @@ function App() {
             }
           />
 
-          {/* OAuth 콜백 페이지 */}
-          <Route path="/onboard/meta" element={<InstagramMetaOnboardPage />} />
 
           {/* 공개 라우트 */}
           <Route path="/instagram-integration-console" element={<InstagramIntegrationConsolePage />} />

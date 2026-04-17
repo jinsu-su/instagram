@@ -47,7 +47,7 @@ const ForgotPassword = () => {
                 <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
             </div>
 
-            <div className="relative z-10 w-full max-w-md">
+            <div className="relative z-10 w-full max-w-lg">
                 <Card className="shadow-2xl border-white/50 bg-white/70 backdrop-blur-3xl rounded-[3rem] overflow-hidden p-6 md:p-8 animate-in fade-in zoom-in duration-700">
                     <CardHeader className="space-y-4 text-center pb-6 p-0">
                         <div className="flex flex-col items-center mb-2">
@@ -82,7 +82,7 @@ const ForgotPassword = () => {
                                             id="email"
                                             name="email"
                                             type="email"
-                                            placeholder="name@example.com"
+                                            placeholder="aidm@aidm.kr"
                                             className="h-14 pl-12 rounded-2xl border-gray-100 bg-white/50 focus:bg-white focus:ring-4 focus:ring-indigo-50/50 transition-all font-bold text-gray-700"
                                             required
                                             value={email}
@@ -112,20 +112,22 @@ const ForgotPassword = () => {
                                 </button>
                             </form>
                         ) : (
-                            <div className="text-center space-y-6 py-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <div className="mx-auto w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center">
-                                    <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                            <div className="text-center space-y-8 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="mx-auto w-20 h-20 bg-emerald-50 rounded-[2rem] flex items-center justify-center shadow-inner animate-float-fast">
+                                    <CheckCircle2 className="w-10 h-10 text-emerald-500" />
                                 </div>
-                                <div className="space-y-2">
-                                    <p className="text-gray-900 font-black text-lg">이메일 발송 완료!</p>
-                                    <p className="text-gray-500 font-medium text-sm leading-relaxed">
-                                        {email} 주소로 비밀번호 재설정 링크를 보냈습니다.<br />
-                                        메일이 오지 않았다면 스팸함을 확인해주세요.
+                                <div className="space-y-4">
+                                    <p className="text-gray-900 font-black text-3xl tracking-tight">이메일 발송 완료!</p>
+                                    <p className="text-gray-500 font-bold text-base leading-relaxed px-4">
+                                        <strong>{email}</strong> 주소로 비밀번호 재설정 링크를 보냈습니다.<br />
+                                        지금 바로 메일함을 확인해주세요.
                                     </p>
                                 </div>
+                                <div className="bg-emerald-50/50 p-6 rounded-[2rem] text-sm text-emerald-600 font-bold mx-2 leading-relaxed shadow-sm">
+                                    💡 메일이 오지 않았다면 <strong>스팸함</strong>을 꼭 확인해보세요.
+                                </div>
                                 <Button
-                                    variant="outline"
-                                    className="w-full h-14 border-gray-100 hover:bg-gray-50 text-gray-600 rounded-2xl font-black text-lg transition-all"
+                                    className="w-full h-14 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-lg shadow-xl shadow-gray-200 transition-all hover:scale-[1.02] active:scale-95"
                                     onClick={() => navigate('/login')}
                                 >
                                     로그인 화면으로 이동

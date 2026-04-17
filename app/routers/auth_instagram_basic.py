@@ -43,7 +43,7 @@ async def instagram_basic_callback(
     if error:
         logger.error(f"Instagram basic login error: {error} - {error_description}")
         frontend_base = str(settings.frontend_base_url).rstrip("/")
-        error_url = f"{frontend_base}/onboard/meta?error={error}&description={error_description or ''}"
+        error_url = f"{frontend_base}/dashboard?error={error}&description={error_description or ''}"
         return RedirectResponse(url=error_url)
 
     if not code or not state:

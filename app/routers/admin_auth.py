@@ -59,6 +59,7 @@ def get_password_hash(password):
 
 @router.post("/signup")
 async def signup(request: SignupRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    logger.info(f"🆕 Signup request received for: {request.email}")
     # Rate Limiting: 3 signups per hour per email to prevent spamming
     rl_key = f"signup:{request.email}"
     signup_rl = await rate_limiter.allow(rl_key, max_calls=3, window_seconds=3600)
@@ -71,35 +72,42 @@ async def signup(request: SignupRequest, background_tasks: BackgroundTasks, db: 
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="비밀번호가 일치하지 않습니다.")
     
+    logger.info("🔍 Checking existing user in DB...")
     # Check existing email
     result = await db.execute(select(Customer).where(Customer.email == request.email))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="이미 등록된 이메일입니다.")
     
     # Create Customer
-    logger.info(f"Creating customer object for {request.email}")
+    logger.info("🔐 Hashing password...")
+    hashed_pw = get_password_hash(request.password)
+    
+    logger.info("👤 Creating Customer object...")
     new_customer = Customer(
         name=request.name,
         email=request.email,
-        hashed_password=get_password_hash(request.password),
+        hashed_password=hashed_pw,
         signup_source="email",
         is_verified=False,
         verification_token=secrets.token_urlsafe(32),
         terms_agreed_at=datetime.utcnow()
     )
     db.add(new_customer)
-    logger.info("Committing to DB...")
+    logger.info("💾 Saving to database (commit)...")
     await db.commit()
-    logger.info("Refreshing customer...")
+    logger.info("✅ Database commit successful.")
+    
+    logger.info("🔄 Refreshing user data...")
     await db.refresh(new_customer)
     
     # Send Verification Email
-    logger.info("Scheduling background email task...")
+    logger.info("📧 Preparing email service...")
     email_service = EmailService()
-    # Using background task for email
-    background_tasks.add_task(email_service.send_verification_email, new_customer.email, new_customer.verification_token)
-    logger.info("Signup request processing complete. Returning response.")
     
+    logger.info("📮 Scheduling verification email in background...")
+    background_tasks.add_task(email_service.send_verification_email, new_customer.email, new_customer.verification_token)
+    
+    logger.info("✨ Signup process finished. Sending response to client.")
     return {"message": "회원가입이 완료되었습니다. 이메일 인증을 진행해주세요."}
 
 @router.post("/login")

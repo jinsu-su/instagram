@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlencode, urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from app.database import get_db
 from app.schemas.auth import AuthRedirect
 from app.services.google_oauth import GoogleOAuthService
 from app.utils.logging import get_logger
+from app.utils.security import create_access_token
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -20,6 +21,7 @@ router = APIRouter()
 
 @router.get("/login", response_model=AuthRedirect)
 async def google_login(
+    request: Request,
     redirect_uri: str | None = Query(
         default=None,
         description="로그인 후 돌아갈 프론트엔드 URL",
@@ -27,7 +29,9 @@ async def google_login(
     oauth_service: GoogleOAuthService = Depends(GoogleOAuthService.from_settings),
 ) -> AuthRedirect:
     """시작용 Google OAuth URL 생성"""
-    return oauth_service.build_authorization_url(redirect_uri=redirect_uri)
+    # 현재 서버의 주소를 감지 (localhost, ngrok, aidm.kr 등)
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
+    return oauth_service.build_authorization_url(redirect_uri=redirect_uri, base_url=base_url)
 
 
 @router.get("/callback")
@@ -55,6 +59,9 @@ async def google_callback(
 
     customer_data = await oauth_service.handle_callback(code=code, state=state, db=db)
 
+    # JWT 토큰 생성하여 자동 로그인 지원
+    access_token = create_access_token(data={"sub": str(customer_data.id)})
+
     # state에서 redirect_uri를 읽어오거나 기본값으로 Meta 온보딩 페이지 사용
     from app.utils.security import loads_state
     try:
@@ -67,7 +74,7 @@ async def google_callback(
         base_redirect_url = redirect_uri_from_state.strip()
     else:
         frontend_base = str(settings.frontend_base_url).rstrip("/")
-        base_redirect_url = f"{frontend_base}/onboard/meta"
+        base_redirect_url = f"{frontend_base}/dashboard"
 
     parsed = urlparse(base_redirect_url)
     normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
@@ -75,7 +82,8 @@ async def google_callback(
     # 항상 is_new=true로 설정하여 고객 정보 입력 폼이 표시되도록 함
     params = {
         "customer_id": customer_data.id,
-        "is_new": "true",  # 항상 true로 설정하여 폼 표시
+        "is_new": "true" if customer_data.is_new else "false",
+        "access_token": access_token,
     }
     
     redirect_with_params = f"{normalized_url}?{urlencode(params)}"

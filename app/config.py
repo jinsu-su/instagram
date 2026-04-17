@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     smtp_password: Optional[SecretStr] = Field(default=None, alias="SMTP_PASSWORD")
     smtp_sender: Optional[str] = Field(default="aidm@aidm.kr", alias="SMTP_SENDER")
 
+    # AWS SES Configuration
+    aws_access_key_id: Optional[SecretStr] = Field(default=None, alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: Optional[SecretStr] = Field(default=None, alias="AWS_SECRET_ACCESS_KEY")
+    aws_region: str = Field(default="ap-northeast-2", alias="AWS_REGION")
+    use_ses: bool = Field(default=False, alias="USE_SES")
+
+
     @property
     def meta_required_scopes(self) -> List[str]:
         return [scope.strip() for scope in self.meta_required_scopes_raw.split(",") if scope.strip()]

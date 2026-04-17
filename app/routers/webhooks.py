@@ -15,6 +15,8 @@ router = APIRouter()
 logger = get_logger(__name__)
 settings = get_settings()
 
+from fastapi.responses import Response, JSONResponse, PlainTextResponse
+
 @router.get("/webhook")
 async def verify_webhook(
     hub_mode: str = Query(None, alias="hub.mode"),
@@ -28,12 +30,12 @@ async def verify_webhook(
         expected_token = settings.meta_webhook_verify_token.get_secret_value()
         if hub_verify_token == expected_token:
             logger.info("✅ Webhook verification successful")
-            return Response(content=hub_challenge)
+            return PlainTextResponse(content=hub_challenge)
         else:
             logger.warning(f"❌ Webhook verification failed: {hub_verify_token} != {expected_token}")
             raise HTTPException(status_code=403, detail="Verification token mismatch")
     
-    return Response(content="Invalid verification request", status_code=400)
+    return PlainTextResponse(content="Invalid verification request", status_code=400)
 
 async def background_process_webhook(data: dict, headers: dict = None):
     """

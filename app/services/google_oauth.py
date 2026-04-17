@@ -36,7 +36,7 @@ class GoogleOAuthService:
     ) -> "GoogleOAuthService":
         return cls(settings=settings, customer_service=customer_service)
 
-    def build_authorization_url(self, redirect_uri: str | None = None) -> AuthRedirect:
+    def build_authorization_url(self, redirect_uri: str | None = None, base_url: str | None = None) -> AuthRedirect:
         """Build Google OAuth authorization URL.
 
         We request basic profile & email so that the integration console can
@@ -49,6 +49,7 @@ class GoogleOAuthService:
                 detail="Google OAuth 클라이언트 ID가 설정되지 않았습니다. .env 파일에 GOOGLE_CLIENT_ID를 설정해주세요."
             )
         
+        # 1. 프론트엔드 복귀 주소 설정 (인증 완료 후 최종 도착지)
         if redirect_uri:
             final_redirect = redirect_uri
         else:
@@ -56,15 +57,23 @@ class GoogleOAuthService:
             # 기본값: 인스타그램 통합 콘솔로 복귀
             final_redirect = f"{frontend_base}/instagram-integration-console"
 
+        # 2. 백엔드 콜백 주소 설정 (구글이 넘겨줄 곳)
+        # base_url이 있으면 (예: localhost:8000) 이를 기반으로 생성, 없으면 .env 기본값 사용
+        if base_url:
+            backend_callback = f"{base_url.rstrip('/')}/auth/google/callback"
+        else:
+            backend_callback = str(self.settings.google_redirect_uri)
+
         state_payload = {
             "redirect_uri": final_redirect,
+            "backend_callback": backend_callback,
             "nonce": secrets.token_urlsafe(16),
         }
         state = dumps_state(state_payload)
 
         query = {
             "client_id": self.settings.google_client_id,
-            "redirect_uri": str(self.settings.google_redirect_uri),
+            "redirect_uri": backend_callback,
             "response_type": "code",
             "scope": "openid email profile",
             "access_type": "offline",
@@ -74,7 +83,7 @@ class GoogleOAuthService:
         }
         params = httpx.QueryParams(query)
         auth_url = f"{self.AUTH_URL}?{params}"
-        logger.info("Google OAuth URL 생성: client_id=%s redirect=%s", self.settings.google_client_id[:20] + "...", final_redirect)
+        logger.info("Google OAuth URL 생성: client_id=%s callback=%s", self.settings.google_client_id[:20] + "...", backend_callback)
         return AuthRedirect(authorization_url=auth_url, state=state)
 
     async def handle_callback(self, code: str, state: str, db: AsyncSession) -> CustomerUpsertResult:
@@ -88,11 +97,14 @@ class GoogleOAuthService:
                 detail=f"잘못된 상태 파라미터입니다: {str(exc)}"
             )
 
+        # state에서 콜백 주소 복원 (없으면 .env 기본값 사용)
+        backend_callback = state_payload.get("backend_callback", str(self.settings.google_redirect_uri))
+
         token_data = {
             "code": code,
             "client_id": self.settings.google_client_id,
             "client_secret": self.settings.google_client_secret.get_secret_value(),
-            "redirect_uri": str(self.settings.google_redirect_uri),
+            "redirect_uri": backend_callback,
             "grant_type": "authorization_code",
         }
 

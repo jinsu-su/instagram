@@ -52,6 +52,9 @@ code {
 .animate-float {
   animation: float 3s ease-in-out infinite;
 }
+.animate-float-fast {
+  animation: float 2s ease-in-out infinite;
+}
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }

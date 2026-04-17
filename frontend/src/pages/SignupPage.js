@@ -57,6 +57,25 @@ const SignupPage = () => {
         }
     };
 
+    const handleGoogleLogin = async () => {
+        try {
+            const currentUrl = window.location.origin;
+            const onboardPath = '/dashboard';
+            const redirectUri = `${currentUrl}${onboardPath}`;
+            
+            const response = await apiFetch(`/auth/google/login?redirect_uri=${encodeURIComponent(redirectUri)}`);
+            const data = await response.json();
+            
+            if (data.authorization_url) {
+                window.location.href = data.authorization_url;
+            } else {
+                setError("구글 로그인 URL을 가져오는 데 실패했습니다.");
+            }
+        } catch (err) {
+            setError("구글 로그인 시작 중 오류가 발생했습니다.");
+        }
+    };
+
     if (success) {
         return (
             <div className="min-h-screen relative overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900 flex items-start justify-center p-6 pt-20 md:pt-28">
@@ -67,21 +86,21 @@ const SignupPage = () => {
                     <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] contrast-150"></div>
                 </div>
 
-                <div className="relative z-10 w-full max-w-md">
-                    <Card className="shadow-2xl border-white/50 bg-white/70 backdrop-blur-3xl rounded-[3rem] overflow-hidden p-8 text-center animate-in fade-in zoom-in duration-700">
-                        <CardHeader className="pb-6 p-0 flex flex-col items-center">
-                            <div className="mb-6 p-4 bg-indigo-50 rounded-3xl w-fit">
-                                <Mail className="w-10 h-10 text-indigo-500" />
+                <div className="relative z-10 w-full max-w-lg">
+                    <Card className="shadow-2xl border-white/50 bg-white/70 backdrop-blur-3xl rounded-[3rem] overflow-hidden p-10 text-center animate-in fade-in zoom-in slide-in-from-bottom-4 duration-700">
+                        <CardHeader className="pb-8 p-0 flex flex-col items-center">
+                            <div className="mb-8 p-6 bg-indigo-50 rounded-[2rem] w-fit shadow-inner animate-float-fast">
+                                <Mail className="w-12 h-12 text-indigo-500" />
                             </div>
-                            <CardTitle className="text-3xl font-black text-gray-900 tracking-tight leading-none mb-4">인증 메일 발송 완료</CardTitle>
-                            <CardDescription className="text-gray-500 font-bold text-sm leading-relaxed">
+                            <CardTitle className="text-4xl font-black text-gray-900 tracking-tight leading-none mb-6">인증 메일 발송 완료</CardTitle>
+                            <CardDescription className="text-gray-500 font-bold text-base leading-relaxed px-2">
                                 입력하신 이메일 <strong>{formData.email}</strong>로 인증 링크를 보냈습니다.<br />
-                                메일함을 확인해주세요.
+                                지금 바로 메일함을 확인하고 계정을 활성화하세요!
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="p-0 pt-4">
-                            <div className="bg-indigo-50/50 p-5 rounded-2xl text-xs text-indigo-600 font-bold mb-8 leading-relaxed">
-                                ⚠️ 메일이 보이지 않는다면 스팸함을 확인해보세요.
+                            <div className="bg-indigo-50/50 p-6 rounded-[2rem] text-sm text-indigo-600 font-bold mb-10 leading-relaxed shadow-sm">
+                                💡 메일이 보이지 않는다면 <strong>스팸함</strong>을 꼭 확인해보세요.
                             </div>
                             <Button
                                 className="w-full h-14 bg-gray-900 hover:bg-black text-white rounded-2xl font-black text-lg shadow-xl shadow-gray-200 transition-all hover:scale-[1.02] active:scale-95"
@@ -124,7 +143,7 @@ const SignupPage = () => {
                     <CardContent className="p-0">
                         <form onSubmit={handleSubmit} className="space-y-5">
                             {error && (
-                                <div className="p-4 mb-6 rounded-2xl bg-red-50 border border-red-100 text-red-600 text-xs font-bold animate-pulse text-center">
+                                <div className="p-4 mb-8 mt-4 rounded-2xl bg-red-50 border border-red-100 text-red-600 text-xs font-bold animate-pulse text-center">
                                     {safeString(error)}
                                 </div>
                             )}
@@ -136,7 +155,7 @@ const SignupPage = () => {
                                     <Input
                                         id="name"
                                         name="name"
-                                        placeholder="홍길동"
+                                        placeholder="성함 또는 비즈니스명"
                                         className="h-14 pl-12 rounded-2xl border-gray-100 bg-white/50 focus:bg-white focus:ring-4 focus:ring-indigo-50/50 transition-all font-bold text-gray-700 placeholder:text-gray-300"
                                         required
                                         value={formData.name}
@@ -153,7 +172,7 @@ const SignupPage = () => {
                                         id="email"
                                         name="email"
                                         type="email"
-                                        placeholder="name@example.com"
+                                        placeholder="aidm@aidm.kr"
                                         className="h-14 pl-12 rounded-2xl border-gray-100 bg-white/50 focus:bg-white focus:ring-4 focus:ring-indigo-50/50 transition-all font-bold text-gray-700 placeholder:text-gray-300"
                                         required
                                         value={formData.email}
@@ -220,6 +239,42 @@ const SignupPage = () => {
                                 ) : (
                                     <>회원가입 <ArrowRight className="w-5 h-5" /></>
                                 )}
+                            </Button>
+
+                            <div className="relative py-4">
+                                <div className="absolute inset-0 flex items-center">
+                                    <span className="w-full border-t border-gray-100" />
+                                </div>
+                                <div className="relative flex justify-center text-xs uppercase tracking-widest">
+                                    <span className="bg-transparent px-4 text-gray-400 font-bold">Or continue with</span>
+                                </div>
+                            </div>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={handleGoogleLogin}
+                                className="w-full h-14 border-gray-100 hover:bg-gray-50 text-gray-700 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-sm"
+                            >
+                                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                                    <path
+                                        fill="#4285F4"
+                                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                                    />
+                                    <path
+                                        fill="#34A853"
+                                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                                    />
+                                    <path
+                                        fill="#FBBC05"
+                                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                                    />
+                                    <path
+                                        fill="#EA4335"
+                                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                                    />
+                                </svg>
+                                구글로 가입하기
                             </Button>
 
                             <div className="relative py-4">

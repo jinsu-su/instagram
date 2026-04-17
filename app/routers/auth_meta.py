@@ -60,7 +60,7 @@ async def meta_callback(
     if error:
         logger.error(f"Meta OAuth error: {error} - {error_description}")
         frontend_url = str(settings.frontend_base_url)
-        error_redirect = f"{frontend_url}/onboard/meta?error={error}&error_reason={error_reason or ''}&error_description={error_description or ''}"
+        error_redirect = f"{frontend_url}/dashboard?error={error}&error_reason={error_reason or ''}&error_description={error_description or ''}"
         return RedirectResponse(url=error_redirect)
 
     from fastapi.responses import HTMLResponse
@@ -215,7 +215,7 @@ async def meta_callback_token(
     except HTTPException as e:
         # HTTPException도 JSON으로 반환
         frontend_url = str(settings.frontend_base_url)
-        error_redirect = f"{frontend_url}/onboard/meta?error={e.status_code}&error_description={e.detail}"
+        error_redirect = f"{frontend_url}/dashboard?error={e.status_code}&error_description={e.detail}"
         return JSONResponse(
             status_code=e.status_code,
             content={"redirect_url": error_redirect, "error": e.detail}
@@ -224,7 +224,7 @@ async def meta_callback_token(
         logger.error(f"Unexpected error in Meta OAuth token callback: {str(e)}")
         logger.error(traceback.format_exc())
         frontend_url = str(settings.frontend_base_url)
-        error_redirect = f"{frontend_url}/onboard/meta?error=internal_error&error_description={str(e)}"
+        error_redirect = f"{frontend_url}/dashboard?error=internal_error&error_description={str(e)}"
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"redirect_url": error_redirect, "error": str(e)}

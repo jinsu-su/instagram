@@ -1,6 +1,19 @@
 import { Navigate } from 'react-router-dom';
 
 export function PrivateRoute({ children }) {
+  // NEW: Immediate token extraction from URL (for Google Login redirect optimization)
+  // This must happen BEFORE the customerId/accessToken check below
+  const queryParams = new URLSearchParams(window.location.search);
+  const tokenFromUrl = queryParams.get('access_token');
+  const cidFromUrl = queryParams.get('customer_id');
+
+  if (tokenFromUrl) {
+    localStorage.setItem('access_token', tokenFromUrl);
+  }
+  if (cidFromUrl) {
+    localStorage.setItem('customer_id', cidFromUrl);
+  }
+
   const customerId = localStorage.getItem('customer_id');
   const accessToken = localStorage.getItem('access_token');
 

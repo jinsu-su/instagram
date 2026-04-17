@@ -27,19 +27,61 @@ app = FastAPI(
     redoc_url=None if settings.environment == "production" else "/redoc",
 )
 
-# Configure CORS
-# In production, we strictly limit origins to the frontend URL to prevent CSRF and unauthorized API access.
-# In development, we allow localhost for easier testing.
-allowed_origins = [str(settings.frontend_base_url).rstrip("/")]
-if settings.environment == "development":
-    allowed_origins.extend([
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:5173",  # Vite default
-    ])
+# --- Middleware Configuration ---
 
+# 1. Prepare Configuration Variables
+allowed_origins = [str(settings.frontend_base_url).rstrip("/")]
+
+# Always allow local development origins for ease of testing/debugging, 
+# while keeping the production base URL as the primary origin.
+allowed_origins.extend([
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+])
+
+
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+domain = str(settings.api_base_url).split("//")[-1].split("/")[0].split(":")[0]
+allowed_hosts = [
+    "*", # Allow all hosts temporarily to debug connection issues
+    domain, "aidm.kr", "*.a.run.app", "localhost", "127.0.0.1", 
+    "localhost:8000", "127.0.0.1:8000", "*.ngrok-free.app", "*.ngrok.app"
+]
+if ".cloudflare" in domain:
+    allowed_hosts.extend(["*.pages.dev", "*.workers.dev"])
+
+# 2. Add Middlewares (ORDER MATTERS: Last added is outermost)
+
+# Layer 3 (Innermost): Custom Security Headers & Logging
+from starlette.middleware.base import BaseHTTPMiddleware
+class SecurityHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.info(f"Incoming request: {request.method} {request.url.path}")
+        try:
+            response = await call_next(request)
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            # logger.info(f"Response status: {response.status_code} for {request.url.path}")
+            return response
+        except Exception as e:
+            logger.error(f"Middleware error: {str(e)}")
+            raise e
+
+app.add_middleware(SecurityHeaderMiddleware)
+
+# Layer 2: TrustedHost (Prevents Host Header Injection)
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=allowed_hosts
+)
+
+# Layer 1 (Outermost): CORS (Handles Preflight OPTIONS requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -49,39 +91,6 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Trusted Host Middleware: Prevents Host Header Injection attacks.
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-domain = str(settings.api_base_url).split("//")[-1].split("/")[0].split(":")[0]
-allowed_hosts = [domain, "localhost", "127.0.0.1", "*.ngrok-free.app", "*.ngrok.app", "*.ngrok.dev"]
-if ".cloudflare" in domain: # Allow cloudflare worker/pages domains
-    allowed_hosts.append("*.pages.dev")
-    allowed_hosts.append("*.workers.dev")
-
-app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=allowed_hosts
-)
-
-@app.middleware("http")
-async def add_security_headers_and_log(request: Request, call_next):
-    """
-    Production Hardening: Add essential security headers to every response.
-    - X-Frame-Options: Prevents Clickjacking
-    - X-Content-Type-Options: Prevents MIME-sniffing
-    - X-XSS-Protection: Legacy but helpful
-    - Content-Security-Policy: Basics for API
-    """
-    logger.info(f"Incoming request: {request.method} {request.url.path}")
-    response = await call_next(request)
-    
-    # Add Security Headers
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    
-    logger.info(f"Response status: {response.status_code} for {request.url.path}")
-    return response
 
 app.include_router(api_router)
 

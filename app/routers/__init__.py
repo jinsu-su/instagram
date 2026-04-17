@@ -18,6 +18,7 @@ from app.routers import (
     upload,
     subscription,
     internal_tasks,
+    ses_webhooks,
 )
 
 api_router = APIRouter()
@@ -39,4 +40,5 @@ api_router.include_router(contacts.router, prefix="/contacts", tags=["contacts"]
 api_router.include_router(verification.router, tags=["verification"]) # /api/verification/verify-email
 api_router.include_router(upload.router, prefix="/api", tags=["upload"])
 api_router.include_router(subscription.router, prefix="/api", tags=["subscription"])
+api_router.include_router(ses_webhooks.router)
 

@@ -46,7 +46,7 @@ We commit to using all data received through pages_messaging permission in accor
 
 **Testing Instructions:**
 
-Step 1: Navigate to https://{frontend-url}/onboard/meta and click "Login with Facebook"
+Step 1: Navigate to https://{frontend-url}/dashboard and connect your Instagram account.
 Step 2: Grant all requested permissions, including pages_messaging, and select the Facebook Page and Instagram Business account to connect
 Step 3: After account linking, verify webhook subscription status at GET /instagram/accounts/{customer_id}/webhook-status (expected: webhook_subscribed: true)
 Step 4: From a personal Instagram account, send a Direct Message to the connected Instagram Business account

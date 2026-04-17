@@ -44,6 +44,10 @@ class Customer(Base):
     ai_knowledge_base_filename = Column(String(255), nullable=True)
     keyword_replies = Column(JSON, nullable=True)
     is_moderation_alert_active = Column(Boolean, default=True)
+    
+    # Email Reputation Management
+    is_email_blocked = Column(Boolean, default=False, nullable=False)
+    email_block_reason = Column(String(100), nullable=True) # e.g., "bounce", "complaint"
 
     # Relationships
     oauth_accounts = relationship("OAuthAccount", back_populates="customer", cascade="all, delete-orphan")

@@ -320,6 +320,8 @@ function Dashboard() {
   const [targetReplyForModal, setTargetReplyForModal] = useState(null);
   // Synchronous URL parsing for production-grade UX (Eliminates flicker)
   const queryParams = new URLSearchParams(window.location.search);
+  
+  // NOTE: Token extraction is now handled by PrivateRoute to avoid redirect loops.
   const initialCustomerId = queryParams.get('customer_id') || localStorage.getItem('customer_id') || '';
   const initialShowTransfer = queryParams.get('confirm_transfer') === 'true' && queryParams.has('target_page_id');
   const initialPendingPageId = queryParams.get('target_page_id');
@@ -1297,38 +1299,24 @@ function Dashboard() {
     }
   };
 
-  // Load customer/IG account status
-  const loadCustomerStatus = async (id) => {
+  // NEW: Optimized Initial Customer Data Loader (Combines Status and Profile)
+  const loadInitialCustomerData = async (id) => {
     try {
       setCustomerLoading(true);
-      const res = await apiFetch(`/admin/customers/${id}`);
-      if (!res.ok) throw new Error('Failed to load customer status.');
-      const data = await res.json();
-      setCustomerStatus(data);
-      setCustomerInfo(data);
-    } catch (err) {
-
-      setCustomerStatus({ error: 'Failed to load customer status.' });
-    } finally {
-      setCustomerLoading(false);
-    }
-  };
-
-  // Enrich profile/name with admin endpoint
-  const loadCustomerProfile = async (id) => {
-    try {
       setProfileLoading(true);
       const res = await apiFetch(`/admin/customers/${id}`);
-      if (!res.ok) throw new Error('Failed to load profile.');
+      if (!res.ok) throw new Error('Failed to load customer data.');
       const data = await res.json();
-      // Enrich name / profile_picture
-      setCustomerStatus((prev) => ({ ...(prev || {}), ...data }));
-      setCustomerInfo((prev) => ({ ...(prev || {}), ...data }));
+      
+      // Update states
+      setCustomerStatus(data);
+      setCustomerInfo(data);
+      return data;
     } catch (err) {
-
-      // Try to display admin data even if 404
-      setCustomerStatus((prev) => prev || { error: 'Failed to load profile status.' });
+      console.error('Error loading initial customer data:', err);
+      setCustomerStatus((prev) => prev || { error: 'Failed to load initial customer data.' });
     } finally {
+      setCustomerLoading(false);
       setProfileLoading(false);
     }
   };
@@ -7447,7 +7435,7 @@ function Dashboard() {
                                 });
                                 if (res.ok) {
                                   showNotify(`${opt.instagram_username} 계정이 연결되었습니다.`);
-                                  loadCustomerStatus(customerId);
+                                  loadInitialCustomerData(customerId);
                                   loadAccountOptions();
                                 } else {
                                   throw new Error('계정 연결 실패');
@@ -7734,7 +7722,7 @@ function Dashboard() {
         showNotify('인스타그램 계정이 성공적으로 이전되었습니다.');
         setShowTransferConfirm(false);
         setPendingTransferPageId(null);
-        loadCustomerStatus(customerId);
+        loadInitialCustomerData(customerId);
       } else {
         const err = await res.json();
         throw new Error(err.detail || '이전 실패');
@@ -7811,19 +7799,22 @@ function Dashboard() {
 
     const fetchAllData = async () => {
       try {
-        // Phase 1: Critical baseline data
+        // Phase 1: CRITICAL Baseline Data (Required to show the main dashboard skeleton)
+        // These are fast and essential for the user to understand the current state.
         await Promise.all([
-          loadCustomerStatus(cid),
-          loadCustomerProfile(cid),
+          loadInitialCustomerData(cid),
           loadWebhookStatus(cid),
-          loadSubscriptionStatus(cid),
-          loadKeywordSettings(cid)
+          loadSubscriptionStatus(cid)
         ]);
 
-        if (!isMounted) return;
+        // REVEAL: Immediately show the dashboard as soon as critical data is ready
+        // This makes the app feel significantly faster (Time-to-Interactive)
+        if (isMounted) setPageLoading(false);
 
-        // Phase 2: Core Dashboard Data
-        await Promise.all([
+        // Phase 2: SECONDARY Content Data (Loads in background with individual loaders)
+        // These can take longer (Meta API calls, heavy AI processing) and shouldn't block the UI.
+        const backgroundTasks = [
+          loadKeywordSettings(cid),
           loadDashboardStats(cid),
           loadAiInsights(cid),
           loadAutomationStats(cid),
@@ -7831,45 +7822,44 @@ function Dashboard() {
           loadPageInsights(cid),
           loadIgInsights(cid).then(() => {
             if (isMounted) loadPerformanceReport(cid);
-          })
-        ]);
-
-        if (!isMounted) return;
-
-        // Phase 3: Secondary/Feature-specific data
-        await Promise.all([
+          }),
           loadIgComments(cid),
           loadMessagingEligibility(cid),
           loadAiSettings(cid),
           loadFlows(cid),
           loadConversations(cid)
-        ]);
+        ];
+
+        // We trigger these in parallel but don't 'await' them before revealing the UI.
+        // They will populate the dashboard components as they finish.
+        Promise.all(backgroundTasks).catch(err => {
+          if (err.name !== 'AbortError') console.error("Background data fetch error:", err);
+        });
 
       } catch (error) {
+        if (isMounted) setPageLoading(false);
         if (error.name !== 'AbortError') {
-          showNotify('데이터를 불러오는 중 문제가 발생했습니다. 잠시 후 상단 새로고침을 눌러주세요.', 'error');
+          showNotify('데이터를 불러오는 중 문제가 발생했습니다.', 'error');
         }
       }
     };
 
-    fetchAllData();
+    const init = async () => {
+      await fetchAllData();
+      if (isMounted) setPageLoading(false);
+    };
+    init();
 
     // Clean up OAuth search params once handled
     const params = new URLSearchParams(window.location.search);
-    if (params.has('customer_id') || params.has('confirm_transfer')) {
+    if (params.has('customer_id') || params.has('access_token') || params.has('confirm_transfer')) {
       const newUrl = window.location.pathname;
       window.history.replaceState({}, '', newUrl);
     }
 
-    // Set page as ready
-    const timer = setTimeout(() => {
-      if (isMounted) setPageLoading(false);
-    }, 800);
-
     return () => {
       isMounted = false;
       controller.abort();
-      clearTimeout(timer);
     };
   }, [customerId]); // Run when customerId changes (e.g. login/switch)
 
@@ -7934,10 +7924,6 @@ function Dashboard() {
     // For now, we allow them to stay on their current view and let local components handle the block.
   }, [usageLocked, currentView, showOnboarding]);
 
-  // MANDATORY ONBOARDING CHECK
-  if (customerLoading) {
-    return renderLoadingScreen();
-  }
 
 
   return (
