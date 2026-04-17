@@ -7,6 +7,7 @@ import { Label } from "../components/ui/label";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Loader2, Mail, Lock, ArrowRight, Sparkles, Eye, EyeOff } from "lucide-react";
 import { apiFetch, safeString, translateError } from '../lib/api';
+import { INSTAGRAM_API_BASE_URL } from '../lib/config';
 
 const InstagramIntegrationConsole = () => {
   const navigate = useNavigate();
