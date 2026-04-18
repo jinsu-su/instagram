@@ -36,7 +36,11 @@ class TokenRefreshService:
                 await db.commit()
                 logger.info(f"Updated expiration date for {account.instagram_username}: {expires_at}")
             else:
-                # 확인 불가 시 일단 기존 토큰 반환
+                # 확인 불가 시 기본 60일 부여 방어 로직 (400 에러 방지)
+                fallback_expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=60)
+                account.token_expires_at = fallback_expires
+                await db.commit()
+                logger.warning(f"Could not debug token for {account.instagram_username}. Setting fallback expiry: {fallback_expires}")
                 return access_token
 
         # 만료 7일 전인지 확인
@@ -71,9 +75,9 @@ class TokenRefreshService:
             except Exception as e:
                 logger.error(f"Failed to refresh token for {account.instagram_username}: {str(e)}")
                 
-                # 🔥 인스타그램 비밀번호 변경 등으로 인한 인증 실패 시 알림
+                # 🔥 인스타그램 비밀번호 변경 또는 90일 만료 등으로 인한 인증 실패 시 알림
                 if "401" in str(e) or "190" in str(e):
-                    account.connection_status = "DISCONNECTED"
+                    account.connection_status = "EXPIRED"
                     await db.commit()
                     
                     from app.services.activity_service import ActivityService
@@ -82,8 +86,8 @@ class TokenRefreshService:
                         customer_id=account.customer_id,
                         event_type="AUTH_ERROR",
                         trigger_source="system",
-                        trigger_text="Token Refresh Failure",
-                        action_text=f"인스타그램 계정(@{account.instagram_username})의 자동 토큰 갱신에 실패했습니다. 비밀번호 변경 등이 원인일 수 있으니 재로그인이 필요합니다.",
+                        trigger_text="Token Expired (Security Policy)",
+                        action_text=f"Meta 개인정보 보호 정책(장기 미접속) 또는 비밀번호 변경으로 인해 계정(@{account.instagram_username}) 권한이 안전하게 만료되었습니다. 대시보드에서 연동 갱신을 진행해주세요.",
                         status="FAILED"
                     )
                 
