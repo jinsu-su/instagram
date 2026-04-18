@@ -1740,6 +1740,7 @@ async def get_performance_report(
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
     insight_service: InsightService = Depends(InsightService),
+    current_user=Depends(get_current_user),
 ):
     """
     최근 게시물 성과를 AI로 분석하여 보고서를 생성합니다.
@@ -1769,7 +1770,7 @@ async def get_performance_report(
         from sqlalchemy import select, and_
         from app.models.ai_performance_report import AIPerformanceReport
         
-        ig_data = await get_ig_insights(customer_id=customer_id, db=db, customer_service=customer_service)
+        ig_data = await get_ig_insights(customer_id=customer_id, db=db, customer_service=customer_service, current_user=current_user)
         recent_media = ig_data.get("recent_media", [])
         if recent_media:
             media_ids = sorted([m.get('id', '') for m in recent_media[:5]])
@@ -1815,7 +1816,7 @@ async def get_performance_report(
     try:
         # 1. Get recent media and metrics via existing ig-insights logic
         # Pass all required dependencies to the function call
-        ig_data = await get_ig_insights(customer_id=customer_id, db=db, customer_service=customer_service)
+        ig_data = await get_ig_insights(customer_id=customer_id, db=db, customer_service=customer_service, current_user=current_user)
         recent_media = ig_data.get("recent_media", [])
         
         if not recent_media:
@@ -1970,6 +1971,9 @@ async def get_performance_report(
             
         return report
 
+    except HTTPException:
+        # FastAPI의 정상적인 에러 응답(403 등)은 그대로 통과시킵니다.
+        raise
     except Exception as e:
         logger.error(f"Error generating performance report: {str(e)}")
         return {
