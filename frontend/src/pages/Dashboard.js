@@ -2853,9 +2853,9 @@ function Dashboard() {
                             <div className="flex items-center gap-2 justify-end">
                               <span className="text-[10px] text-gray-400 font-bold w-12 text-right">
                                 {post.reach > 0
-                                  ? ((currentEngagement / post.reach) * 100).toFixed(1) + '%'
+                                  ? Math.min((currentEngagement / post.reach) * 100, 100).toFixed(1) + '%'
                                   : (igInsights?.followers_count > 0
-                                    ? ((currentEngagement / igInsights.followers_count) * 100).toFixed(1) + '%'
+                                    ? Math.min((currentEngagement / igInsights.followers_count) * 100, 100).toFixed(1) + '%'
                                     : '0.0%')}
                               </span>
                               <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden relative">
