@@ -610,40 +610,11 @@ class InsightService:
         """
 
         try:
-            # Gemini API 공식 Structured Output 사용 (JSON Schema dict 형태)
-            # TypedDict 대신 dict 형태의 JSON Schema 사용 (다른 파일들과 일관성 유지)
-            response_schema_dict = {
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "type": "string",
-                        "description": "핵심 성과 요약 (100자 이내, 반복 절대 금지)"
-                    },
-                    "analysis": {
-                        "type": "string",
-                        "description": "전문가 인사이트 (5-7문장, 각 문장은 고유한 정보, 반복 절대 금지)"
-                    },
-                    "best_post": {
-                        "type": "object",
-                        "properties": {
-                            "caption": {"type": "string", "description": "게시물 캡션 요약 (40자 이내)"},
-                            "reason": {"type": "string", "description": "선정 이유 (150자 이내, 반복 절대 금지)"}
-                        },
-                        "required": ["caption", "reason"]
-                    },
-                    "strategy": {
-                        "type": "array",
-                        "items": {"type": "string", "description": "구체적 행동 지침 (반복 절대 금지)"}
-                    }
-                },
-                "required": ["summary", "analysis", "strategy"]
-            }
-            
             generation_config = {
                 "response_mime_type": "application/json",
-                "response_schema": response_schema_dict,  # JSON Schema dict 형태 사용
-                "max_output_tokens": 4096,  # 충분한 토큰 할당 (JSON 완성 보장)
-                "temperature": 0.0  # 가장 결정론적인 결과(완전한 한국어 고정)를 위해 0.0으로 조정
+                "response_schema": PerformanceAnalysis,
+                "max_output_tokens": 4096,
+                "temperature": 0.0
             }
             # 데이터가 아무리 없어도 LLM을 통해 '정성적 컨설팅' 결과를 생성함 (하드코딩 제거)
             logger.info(f"[AI Strategy] Cold Start: {is_cold_start}, Prompt Length: {len(prompt)}")

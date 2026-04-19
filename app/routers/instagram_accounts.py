@@ -2527,6 +2527,8 @@ async def get_page_insights(
                 }
             else:
                 return {"page_id": page_id, "error": response.text, "message": "Failed to retrieve insights"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"페이지 인사이트 조회 중 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

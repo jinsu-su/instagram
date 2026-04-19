@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { INSTAGRAM_API_BASE_URL } from '../lib/config';
-import { apiFetch, safeFetch, safeString } from '../lib/api';
+import { apiFetch, safeFetch, safeString, clearSessionAndRedirect } from '../lib/api';
 import Subscription from './Subscription'; // PortOne Payment Page
 import Campaigns from './Campaigns';
 
@@ -328,7 +328,8 @@ function Dashboard() {
 
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'insights', 'comments', 'inbox', etc.
   const [customerId, setCustomerId] = useState(initialCustomerId);
-  const [pageLoading, setPageLoading] = useState(true); // Protection for initial mount flicker
+  const [pageLoading, setPageLoading] = useState(true);
+  const [initializationError, setInitializationError] = useState(null); // SaaS Resilience: Handle backend connection failures
   const [customerInfo, setCustomerInfo] = useState(null);
   const [messagingAllowed, setMessagingAllowed] = useState(false);
   const [messagingDetail, _setMessagingDetail] = useState('');
@@ -644,21 +645,49 @@ function Dashboard() {
   const [activeSegment, setActiveSegment] = useState('all'); // 'all', 'vip', 'potential', 'inquiry'
 
 
-  const renderLoadingScreen = () => (
-    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center animate-in fade-in duration-500">
-      <div className="relative animate-pulse mb-0">
-        <img
-          src="/assets/aidm-logo-ultra.png"
-          alt="AIDM"
-          className="h-32 w-auto object-contain"
-        />
+  const renderLoadingScreen = () => {
+    if (initializationError) {
+      return (
+        <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center animate-in fade-in duration-500 p-6 text-center">
+          <div className="bg-red-50 p-6 rounded-[2rem] border border-red-100 max-w-md w-full shadow-xl shadow-red-50/50">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight mb-2">연결에 실패했습니다</h2>
+            <p className="text-gray-600 font-bold mb-8 leading-relaxed">
+              {initializationError}<br />
+              서버가 점검 중이거나 일시적인 장애가 있을 수 있습니다.
+            </p>
+            <Button 
+              onClick={() => {
+                setInitializationError(null);
+                setPageLoading(true);
+                // Trigger reload via cid reset logic or direct call
+                window.location.reload(); 
+              }}
+              className="w-full rounded-2xl bg-gray-900 text-white h-14 font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-gray-200"
+            >
+              다시 연결 시도
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="relative animate-pulse mb-0">
+          <img
+            src="/assets/aidm-logo-ultra.png"
+            alt="AIDM"
+            className="h-32 w-auto object-contain"
+          />
+        </div>
+        <div className="-mt-4 text-center space-y-0.5">
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight m-0">잠시만 기다려주세요</h2>
+          <p className="text-gray-500 font-bold m-0">AIDM 연결을 준비하고 있습니다...</p>
+        </div>
       </div>
-      <div className="-mt-4 text-center space-y-0.5">
-        <h2 className="text-2xl font-black text-gray-900 tracking-tight m-0">잠시만 기다려주세요</h2>
-        <p className="text-gray-500 font-bold m-0">AIDM 연결을 준비하고 있습니다...</p>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderOnboarding = () => (
     <>
@@ -1321,17 +1350,33 @@ function Dashboard() {
     try {
       setCustomerLoading(true);
       setProfileLoading(true);
-      const res = await apiFetch(`/admin/customers/${id}`);
-      if (!res.ok) throw new Error('Failed to load customer data.');
+      
+      // Standard SaaS Flow: Initial Session Verification
+      // Using cache-busting timestamp to prevent "Ghost Dashboard" from disk cache
+      const res = await apiFetch(`/admin/customers/${id}?t=${Date.now()}`);
+      
+      // If the user no longer exists (404) or is unauthorized (401), force logout immediately
+      if (res.status === 401 || res.status === 404) {
+        console.warn('Session invalid or user not found. Redirecting to landing page...');
+        clearSessionAndRedirect();
+        return null;
+      }
+      
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       const data = await res.json();
       
-      // Update states
+      // Successfully verified user session
       setCustomerStatus(data);
       setCustomerInfo(data);
       return data;
     } catch (err) {
-      console.error('Error loading initial customer data:', err);
-      setCustomerStatus((prev) => prev || { error: 'Failed to load initial customer data.' });
+      console.error('Critical Error loading initial customer data:', err);
+      // If it's a critical auth error, don't allow staying in the ghost dashboard
+      if (err.message?.includes('401') || err.message?.includes('404')) {
+        clearSessionAndRedirect();
+      }
+      setCustomerStatus((prev) => prev || { error: 'Failed to verify session.' });
+      return null;
     } finally {
       setCustomerLoading(false);
       setProfileLoading(false);
@@ -7815,22 +7860,25 @@ function Dashboard() {
     let isMounted = true;
 
     const fetchAllData = async () => {
+      if (!isMounted) return;
+      
       try {
-        // Phase 1: CRITICAL Baseline Data (Required to show the main dashboard skeleton)
-        // These are fast and essential for the user to understand the current state.
-        await Promise.all([
-          loadInitialCustomerData(cid),
-          loadWebhookStatus(cid),
-          loadSubscriptionStatus(cid)
-        ]);
+        // Step 1: STRICT Session Verification (Verify-First)
+        // Dashboard will NOT be revealed until this succeeds.
+        const sessionData = await loadInitialCustomerData(cid);
+        
+        // If sessionData is null (due to 401/404 redirect), stop here.
+        if (!sessionData) return;
 
-        // REVEAL: Immediately show the dashboard as soon as critical data is ready
-        // This makes the app feel significantly faster (Time-to-Interactive)
+        // Step 2: REVEAL UI (Load-After)
+        // Now that we've verified the user actually exists in the DB, show the dashboard.
         if (isMounted) setPageLoading(false);
 
-        // Phase 2: SECONDARY Content Data (Loads in background with individual loaders)
-        // These can take longer (Meta API calls, heavy AI processing) and shouldn't block the UI.
+        // Step 3: BACKGROUND Loading (Non-blocking content)
+        // All existing functions are preserved and run in parallel now.
         const backgroundTasks = [
+          loadWebhookStatus(cid),
+          loadSubscriptionStatus(cid),
           loadKeywordSettings(cid),
           loadDashboardStats(cid),
           loadAiInsights(cid),
@@ -7847,23 +7895,28 @@ function Dashboard() {
           loadConversations(cid)
         ];
 
-        // We trigger these in parallel but don't 'await' them before revealing the UI.
-        // They will populate the dashboard components as they finish.
         Promise.all(backgroundTasks).catch(err => {
-          if (err.name !== 'AbortError') console.error("Background data fetch error:", err);
+          if (err.name !== 'AbortError' && isMounted) {
+            console.warn("Non-critical background data failed to load:", err);
+          }
         });
 
       } catch (error) {
-        if (isMounted) setPageLoading(false);
-        if (error.name !== 'AbortError') {
-          showNotify('데이터를 불러오는 중 문제가 발생했습니다.', 'error');
+        console.error("Critical Dashboard initialization error:", error);
+        if (isMounted) {
+          // SaaS Standard: Distinguish between Auth error and Connection error
+          if (error.message?.includes('401') || error.message?.includes('404')) {
+            // Handled by loadInitialCustomerData redirect
+          } else {
+            setInitializationError('서버와 연결할 수 없습니다.');
+          }
+          setPageLoading(false); 
         }
       }
     };
 
     const init = async () => {
       await fetchAllData();
-      if (isMounted) setPageLoading(false);
     };
     init();
 

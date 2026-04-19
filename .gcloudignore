@@ -53,3 +53,4 @@ tmp/
 # Exclude frontend source (only use build output if needed)
 frontend/
 node_modules/
+.gcloud_sdk/

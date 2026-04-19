@@ -64,11 +64,32 @@ export const translateError = (err) => {
   return msg || '요청 처리 중 예기치 못한 오류가 발생했습니다.';
 };
 
+/**
+ * Centralized session clearing and redirect ritual.
+ * Ensures all auth tokens are wiped and user is sent to the home/login page.
+ */
+export const clearSessionAndRedirect = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('customer_id');
+    localStorage.removeItem('token_type');
+    
+    // Use window.location.replace to prevent back-button loops to the dead session
+    // Only redirect if we haven't already started the process
+    if (!window._isRedirectingToLogin) {
+        window._isRedirectingToLogin = true;
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+            window.location.replace('/');
+        }
+    }
+};
+
 export const apiFetch = async (endpoint, options = {}) => {
     const token = localStorage.getItem('access_token');
 
     const headers = {
-        'ngrok-skip-browser-warning': 'true'
+        'ngrok-skip-browser-warning': 'true',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     };
 
     if (!(options.body instanceof FormData)) {
@@ -96,19 +117,20 @@ export const apiFetch = async (endpoint, options = {}) => {
 
     while (attempt <= MAX_RETRIES) {
         let response;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second global timeout per request
+
         try {
             response = await fetch(url, {
                 ...options,
                 headers,
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             if (response.ok || (response.status >= 400 && response.status < 500 && response.status !== 429)) {
                 if (response.status === 401) {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('customer_id');
-                    if (window.location.pathname !== '/login') {
-                        window.location.href = '/login';
-                    }
+                    clearSessionAndRedirect();
                     return response;
                 }
 
@@ -127,6 +149,17 @@ export const apiFetch = async (endpoint, options = {}) => {
             if (attempt === MAX_RETRIES) return response;
 
         } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            if (fetchErr.name === 'AbortError') {
+                console.error(`Request timed out: ${url}`);
+                if (attempt === MAX_RETRIES) {
+                    return {
+                        ok: false,
+                        status: 408,
+                        json: async () => ({ detail: '요청 시간이 초과되었습니다. 서버 상태를 확인해주세요.' })
+                    };
+                }
+            }
             if (attempt === MAX_RETRIES) throw fetchErr;
         }
 

@@ -206,10 +206,8 @@ async def subscription_scheduler():
 async def token_refresh_scheduler():
     """Instagram 액세스 토큰 자동 갱신 스케줄러.
     
-    - 24시간마다 실행
-    - 만료 10일 이내이거나 이미 만료된 토큰 자동 갱신 시도
-    - 갱신 성공: 새 토큰 + 새 만료 시간 DB 저장
-    - 갱신 실패(이미 만료): connection_status = DISCONNECTED 마킹 → 사용자 재로그인 필요
+    - 12시간마다 실행되도록 주기를 변경 (기존 24시간)
+    - TokenRefreshService에 모든 복잡한 갱신 판단을 위임
     """
     # 서버 시작 직후 1분 대기 (DB 연결 안정화)
     await asyncio.sleep(60)
@@ -220,13 +218,11 @@ async def token_refresh_scheduler():
             from sqlalchemy import select
             from app.models.instagram_account import InstagramAccount
             from app.database import AsyncSessionLocal
-            from app.services.meta_oauth import MetaOAuthService
+            from app.services.token_refresh_service import TokenRefreshService
             from app.services.customer_service import CustomerService
             from app.config import get_settings
 
             _settings = get_settings()
-            refresh_threshold = timedelta(days=10)  # 만료 10일 전부터 갱신
-            now = datetime.utcnow()
 
             async with AsyncSessionLocal() as db:
                 # 1. 토큰이 있는 모든 계정 조회
@@ -242,117 +238,43 @@ async def token_refresh_scheduler():
                 failed = 0
                 skipped = 0
 
+                # TokenRefreshService 인스턴스화
+                customer_service = CustomerService()
+                token_service = TokenRefreshService(settings=_settings, customer_service=customer_service)
+
                 for account in accounts:
                     try:
-                        token = account.access_token
-                        if not token:
-                            skipped += 1
-                            continue
-
-                        # 만료 시간 체크
-                        needs_refresh = False
-                        already_expired = False
-
-                        if account.token_expires_at:
-                            time_until_expiry = account.token_expires_at - now
-                            if time_until_expiry.total_seconds() <= 0:
-                                already_expired = True
-                                needs_refresh = True
-                                logger.warning(
-                                    f"⚠️ Token already EXPIRED for customer {account.customer_id} "
-                                    f"(expired: {account.token_expires_at})"
-                                )
-                            elif time_until_expiry <= refresh_threshold:
-                                needs_refresh = True
-                                logger.info(
-                                    f"🔔 Token expiring soon for customer {account.customer_id} "
-                                    f"(expires in: {time_until_expiry.days}일)"
-                                )
-                            else:
-                                skipped += 1
-                                continue
+                        # get_refreshed_token 내부에서
+                        # - 만료 기간 체크
+                        # - 토큰 타입에 따른 FB/IG API 선택
+                        # - 만료 일자 갱신
+                        # - 에러 시 DISCONNECTED 마킹 등 모든 처리를 캡슐화
+                        
+                        original_token = account.access_token
+                        new_token = await token_service.get_refreshed_token(db, account)
+                        
+                        # connection_status가 TokenRefreshService 내에서 바뀌었을 수 있음
+                        if account.connection_status == "DISCONNECTED":
+                            failed += 1
+                        elif original_token != new_token and new_token:
+                            refreshed += 1
                         else:
-                            # 만료 시간 미설정: 갱신 시도하여 만료 시간 확보
-                            needs_refresh = True
-                            logger.info(f"ℹ️ No expiry time set for customer {account.customer_id}, attempting refresh")
-
-                        if needs_refresh:
-                            if already_expired:
-                                # 이미 만료: 갱신 불가, DISCONNECTED 마킹
-                                logger.error(
-                                    f"❌ Cannot refresh expired token for customer {account.customer_id}. "
-                                    f"Marking as DISCONNECTED."
-                                )
-                                account.connection_status = "DISCONNECTED"
-                                await db.commit()
-                                failed += 1
-                                continue
-
-                            # 만료 전: 자동 갱신 시도
-                            try:
-                                oauth_service = MetaOAuthService.from_settings()
-                                refresh_result = await oauth_service.auto_refresh_token(token)
-                                
-                                new_token = refresh_result.get("access_token")
-                                expires_in = refresh_result.get("expires_in")  # seconds
-
-                                if new_token:
-                                    account.access_token = new_token
-                                    if expires_in:
-                                        account.token_expires_at = now + timedelta(seconds=int(expires_in))
-                                    else:
-                                        # 기본 60일 적용
-                                        account.token_expires_at = now + timedelta(days=60)
-                                    
-                                    await db.commit()
-                                    refreshed += 1
-                                    logger.info(
-                                        f"✅ Token refreshed for customer {account.customer_id} "
-                                        f"(new expiry: {account.token_expires_at})"
-                                    )
-                                else:
-                                    logger.error(f"❌ Refresh returned no token for customer {account.customer_id}")
-                                    failed += 1
-
-                            except Exception as refresh_err:
-                                import httpx
-                                is_client_error = False
-                                
-                                if isinstance(refresh_err, httpx.HTTPStatusError):
-                                    status_code = refresh_err.response.status_code
-                                    # 400번대 에러(만료, 권한 취소 등)인 경우에만 영구 연결 끊김 처리
-                                    if 400 <= status_code < 500:
-                                        is_client_error = True
-                                        
-                                if is_client_error:
-                                    logger.error(
-                                        f"❌ Token refresh permanently failed (HTTP Client Error) for customer {account.customer_id}. "
-                                        f"Marking as DISCONNECTED. Error: {str(refresh_err)}"
-                                    )
-                                    account.connection_status = "DISCONNECTED"
-                                    await db.commit()
-                                else:
-                                    # 네트워크 장애나 Meta 500 에러일 경우 다음 날 다시 시도하도록 유지
-                                    logger.warning(
-                                        f"⚠️ Token refresh temporarily failed (Network/Server Error) for customer {account.customer_id}. "
-                                        f"Will retry next time. Error: {str(refresh_err)}"
-                                    )
-                                failed += 1
-
-                    except Exception as account_err:
-                        logger.error(f"Error processing account {account.customer_id}: {account_err}")
+                            skipped += 1
+                            
+                    except Exception as loop_e:
+                        logger.error(f"Error checking token for account {account.id}: {loop_e}")
                         failed += 1
 
                 logger.info(
-                    f"🔑 Token refresh complete: "
-                    f"✅ refreshed={refreshed}, ❌ failed/disconnected={failed}, ⏭️ skipped={skipped}"
+                    f"✅ Token refresh scheduler finished. "
+                    f"refreshed={refreshed}, failed/disconnected={failed}, skipped={skipped}"
                 )
 
         except Exception as e:
-            logger.error(f"Error in token refresh scheduler: {e}", exc_info=True)
+            logger.error(f"🚨 Token refresh scheduler crashed: {e}", exc_info=True)
 
-        # 24시간마다 실행
-        await asyncio.sleep(24 * 3600)
+        # 12시간 대기
+        await asyncio.sleep(12 * 3600)
 
 
 @app.on_event("startup")
