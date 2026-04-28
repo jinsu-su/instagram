@@ -49,6 +49,11 @@ class PaymentCompleteRequest(BaseModel):
     card_name: Optional[str] = None
     card_number: Optional[str] = None
 
+class RefundRequest(BaseModel):
+    payment_id: str # This is imp_uid or paymentId
+    reason: Optional[str] = "User Request"
+    amount: Optional[int] = None # Partial refund support
+
 
 
 
@@ -183,6 +188,44 @@ async def cancel_subscription(
         raise HTTPException(status_code=404, detail="Subscription not found")
     return {"status": "success", "message": "Subscription canceled successfully"}
 
+@router.post("/refund")
+async def refund_subscription_payment(
+    req: RefundRequest,
+    current_user: Customer = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Refund a specific payment. Only owners or admins can refund.
+    """
+    service = SubscriptionService(db)
+    
+    # 1. Ownership/Permission Check
+    from app.models.subscription import PaymentHistory
+    from sqlalchemy import select
+    result = await db.execute(select(PaymentHistory).where(PaymentHistory.imp_uid == req.payment_id))
+    payment = result.scalar_one_or_none()
+    
+    if not payment:
+        raise HTTPException(status_code=404, detail="결제 내역을 찾을 수 없습니다.")
+        
+    if payment.customer_id != current_user.id and not getattr(current_user, 'is_superuser', False):
+        raise HTTPException(status_code=403, detail="환불 권한이 없습니다.")
+    
+    if payment.status == "cancelled":
+        raise HTTPException(status_code=400, detail="이미 취소된 결제 건입니다.")
+    
+    # 2. Process Refund via Service
+    try:
+        refund_data = await service.refund_payment(
+            payment_id=req.payment_id,
+            reason=req.reason,
+            amount=req.amount
+        )
+        return {"status": "success", "data": refund_data}
+    except Exception as e:
+        logger.error(f"Refund error for {req.payment_id}: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"환불 도중 오류가 발생했습니다: {str(e)}")
+
 @router.post("/refresh-recurring", include_in_schema=False)
 async def refresh_recurring_payments(
     current_user: Customer = Depends(get_current_user),
@@ -267,9 +310,12 @@ async def portone_webhook(
                 # If it's a manual payment (sub_), it might have already been processed by /complete.
                 logger.info(f"Webhook: Syncing payment for {target_sub.customer_id}")
                 
-                # SECURITY: 카드사 정보 등이 있으면 업데이트
-                card_name = payment_data.get("card", {}).get("name")
-                card_number = payment_data.get("card", {}).get("number")
+                # 🛡️ SECURITY: Webhook payload re-verification (Cross-check with PortOne API)
+                # Don't trust the payload; fetch the source of truth directly.
+                payment_info = await service.verify_payment(payment_id)
+                
+                # Extract card info using Service helper (Handles V1/V2, issuer/brand)
+                card_name, card_number = service.extract_card_info(payment_info)
                 
                 # Check if this specific payment ID was already logged
                 from app.models.subscription import PaymentHistory
@@ -318,6 +364,29 @@ async def complete_payment(
         # 1. 서버측 결제 검증 (PortOne API 호출)
         payment_info = await service.verify_payment(req.imp_uid)
         
+        # 🛡️ DEBUG: 파일 시스템에 직접 기록 (로그 유실 대비 최후의 수단)
+        try:
+            with open("DEBUG_RESPONSE.json", "w", encoding="utf-8") as f:
+                import json
+                json.dump(payment_info, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+        
+        # 🛡️ SECURITY: V2 공식 문서 구조 대응 (Service 헬퍼 사용)
+        final_card_name, final_card_num = service.extract_card_info(payment_info)
+        
+        # Fallback to request data if extraction failed
+        final_card_name = final_card_name or req.card_name
+        fallback_num = final_card_num or req.card_number
+        
+        # 🛡️ 최후의 안전장치: 포맷팅 무조건 적용 (별표 삭제 절대 금지)
+        if fallback_num and not str(fallback_num).startswith("****"):
+            num_str = str(fallback_num).strip()
+            last_four_chars = num_str[-4:] if len(num_str) >= 4 else num_str
+            final_card_num = f"**** **** **** {last_four_chars}" if last_four_chars else None
+        else:
+            final_card_num = fallback_num
+
         # 2. 검증 성공 시에만 구독 업데이트 (commit=False)
         sub = await service.create_or_update_subscription(
             customer_id=current_user.id,
@@ -326,8 +395,8 @@ async def complete_payment(
             pg_provider=req.pg_provider,
             amount=req.amount,
             currency=req.currency,
-            card_name=payment_info.get("card", {}).get("name") or req.card_name,
-            card_number=payment_info.get("card", {}).get("number") or req.card_number,
+            card_name=final_card_name,
+            card_number=final_card_num,
             commit=False
         )
         

@@ -151,7 +151,6 @@ export const apiFetch = async (endpoint, options = {}) => {
         } catch (fetchErr) {
             clearTimeout(timeoutId);
             if (fetchErr.name === 'AbortError') {
-                console.error(`Request timed out: ${url}`);
                 if (attempt === MAX_RETRIES) {
                     return {
                         ok: false,

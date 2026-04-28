@@ -1,12 +1,12 @@
 from uuid import UUID
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import traceback
 
 from app.database import get_db_session
-from app.schemas.customer import CustomerResponse, CustomerCreateRequest, CustomerUpdateRequest, DashboardStatsResponse, AutomationActivityResponse
+from app.schemas.customer import CustomerResponse, CustomerCreateRequest, CustomerUpdateRequest, DashboardStatsResponse, AutomationActivityResponse, BasicDashboardSummaryResponse
 from app.schemas.admin import CustomerListResponse
 from app.schemas.common import SimpleStatusResponse
 from app.services.customer_service import CustomerService
@@ -31,13 +31,14 @@ async def list_customers(
     current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     service: CustomerService = Depends(CustomerService),
+    background_tasks: BackgroundTasks = None
 ) -> CustomerListResponse:
     """
     SaaS Hardening: Restrict listing to only the authenticated user's profile.
     This prevents users from discovering other customer IDs in the system.
     """
     # Simply return a list containing only the current user's data
-    customer_res = await service.get_customer(db=db, customer_id=current_user.id)
+    customer_res = await service.get_customer(db=db, customer_id=current_user.id, background_tasks=background_tasks)
     return CustomerListResponse(
         page=1,
         page_size=1,
@@ -52,6 +53,7 @@ async def get_customer(
     current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     service: CustomerService = Depends(CustomerService),
+    background_tasks: BackgroundTasks = None
 ) -> CustomerResponse:
     logger.info(f"🔍 get_customer called: customer_id={customer_id}, current_user.id={current_user.id}")
     logger.info(f"🔍 Type check: customer_id type={type(customer_id)}, current_user.id type={type(current_user.id)}")
@@ -64,7 +66,7 @@ async def get_customer(
             detail="이 고객 정보에 접근할 권한이 없습니다."
         )
     try:
-        customer = await service.get_customer(db=db, customer_id=customer_id)
+        customer = await service.get_customer(db=db, customer_id=customer_id, background_tasks=background_tasks)
         if not customer:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="고객을 찾을 수 없습니다.")
         return customer
@@ -125,6 +127,28 @@ async def get_automation_stats(
             "event_distribution": [],
             "intent_distribution": []
         }
+
+
+@router.get("/{customer_id}/basic-dashboard-summary", response_model=BasicDashboardSummaryResponse)
+async def get_basic_dashboard_summary(
+    customer_id: UUID,
+    days: int = 7,
+    current_user: Customer = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+    service: CustomerService = Depends(CustomerService),
+) -> BasicDashboardSummaryResponse:
+    if current_user.id != customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="이 대시보드 데이터에 접근할 권한이 없습니다."
+        )
+    try:
+        payload = await service.get_basic_dashboard_summary(db=db, customer_id=customer_id, days=days)
+        return BasicDashboardSummaryResponse(**payload)
+    except Exception as e:
+        logger.error(f"Error getting basic dashboard summary: {str(e)}")
+        logger.error(traceback.format_exc())
+        return BasicDashboardSummaryResponse(today_automated=0, today_failed=0, last7_daily_automated=[], top_posts=[])
 
 
 @router.get("/{customer_id}/ai-insights")
@@ -272,7 +296,7 @@ async def update_customer(
         logger.error(f"Validation error updating customer: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail="요청을 처리하는 중 오류가 발생했습니다."
         )
     except Exception as e:
         logger.error(f"Error updating customer: {str(e)}")

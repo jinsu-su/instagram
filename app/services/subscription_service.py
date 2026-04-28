@@ -3,6 +3,7 @@ from sqlalchemy import select
 from app.models.subscription import Subscription, PaymentHistory
 from app.models.customer import Customer
 from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Tuple
 from dateutil.relativedelta import relativedelta
 import httpx
 from app.utils.logging import get_logger
@@ -19,29 +20,21 @@ CHANNEL_KEY_GLOBAL = "channel-key-d870ba02-d96d-4769-b337-ca0f7c8528d0" # PayPal
 
 def mask_card_number(card_number: str = None) -> str:
     """
-    카드 번호를 마스킹하여 마지막 4자리만 반환합니다.
-    
-    Args:
-        card_number: 카드 번호 (전체 또는 마스킹된 형태)
-    
-    Returns:
-        마지막 4자리만 포함한 문자열 (예: "1234")
+    카드 번호를 안전하게 마스킹하여 보안 규격을 맞춥니다.
+    이미 '****'가 포함된 정규 포맷이라면 그대로 반환합니다.
+    주의: 포트원의 원본 마스킹(예: 724*)을 훼손하지 않기 위해 무조건 맨 뒤 4글자를 잡습니다.
     """
     if not card_number:
         return None
     
-    # 이미 마스킹된 형태인지 확인 (숫자만 있는지)
-    digits_only = ''.join(filter(str.isdigit, card_number))
+    card_str = str(card_number).strip()
     
-    if len(digits_only) >= 4:
-        # 마지막 4자리만 반환
-        return digits_only[-4:]
-    elif len(digits_only) > 0:
-        # 4자리 미만이면 그대로 반환 (이미 마스킹된 경우일 수 있음)
-        return digits_only
-    else:
-        # 숫자가 없으면 None 반환
-        return None
+    # 이미 가장 완벽한 포맷이면 그대로 반환
+    if card_str.startswith("**** **** ****"):
+        return card_str
+        
+    last_four_chars = card_str[-4:] if len(card_str) >= 4 else card_str
+    return f"**** **** **** {last_four_chars}"
 
 class SubscriptionService:
     def __init__(self, db: AsyncSession = Depends(get_db_session)):
@@ -97,10 +90,25 @@ class SubscriptionService:
         # 2. 정기 결제 플랜인데 종료일이 지난 경우 (Past due detection & Auto-Renewal)
         elif sub.status == "active" and sub.plan_name != "free":
             if sub.next_billing_date and sub.next_billing_date <= now:
+                # [SECURITY] Check if there's a very recent successful payment that hasn't synced yet
+                stmt = select(PaymentHistory).where(
+                    PaymentHistory.customer_id == sub.customer_id,
+                    PaymentHistory.status == "paid",
+                    PaymentHistory.paid_at >= (now - timedelta(days=2))
+                ).order_by(PaymentHistory.paid_at.desc())
+                res = await self.db.execute(stmt)
+                recent_payment = res.scalar_one_or_none()
+                
+                if recent_payment:
+                    # Self-heal: If payment exists but sub not extended, extend it now
+                    logger.info(f"🛡️ Self-healing subscription for {sub.customer_id}: Found recent payment {recent_payment.imp_uid}")
+                    await self.extend_subscription(sub, commit=False)
+                    await self.db.commit()
+                    return
+
                 # 결제일이 지났는데 아직 상태가 active 라면, 즉시 재결제 시도 (On-demand Renewal)
                 if sub.billing_key:
                     logger.info(f"🔄 Membership due for {sub.customer_id}. Attempting automatic renewal...")
-                    # ⚠️ 주의: execute_recurring_payment 내에서 내부적으로 extend_subscription을 호출하여 날짜를 갱신함
                     success = await self.execute_recurring_payment(sub)
                     if success:
                         logger.info(f"✅ Automatic renewal successful for {sub.customer_id}.")
@@ -110,11 +118,28 @@ class SubscriptionService:
                         sub.status = "past_due"
                         await self.db.commit()
                 else:
-                    # 빌링 키가 없는데 결제일이 지났다면 즉시 결제 지연(past_due) 처리
-                    # 바로 free로 강등하지 않고 결제를 유도함 (유저 피드백 반영)
                     logger.info(f"🛡️ No Billing Key & Date Passed for {sub.customer_id}. Setting to past_due.")
                     sub.status = "past_due"
                     await self.db.commit()
+
+        # Monthly reset for counters (usage & AI trial)
+        await self._reset_monthly_counters_if_needed(sub)
+
+    async def _reset_monthly_counters_if_needed(self, sub: Subscription):
+        """
+        Reset monthly counters when billing period changes.
+        - usage_count: general usage (existing)
+        - ai_reply_count: Basic AI auto-reply trial
+        """
+        now = datetime.utcnow()
+        if sub.current_period_start and (sub.current_period_start.year != now.year or sub.current_period_start.month != now.month):
+            sub.usage_count = 0
+            sub.performance_report_count = 0
+            sub.comment_analysis_count = 0
+            sub.ai_reply_count = 0
+            sub.current_period_start = now
+            sub.updated_at = now
+            await self.db.commit()
 
     def _downgrade_to_free(self, sub: Subscription):
         """Internal helper to reset subscription to free tier"""
@@ -160,6 +185,7 @@ class SubscriptionService:
         
         # Set usage limit based on plan
         await self.update_usage_limit_for_plan(sub, sub.plan_name)
+        await self.update_ai_reply_limit_for_plan(sub, sub.plan_name)
         
         if billing_key:
             sub.billing_key = billing_key
@@ -168,9 +194,12 @@ class SubscriptionService:
         
         if card_name:
             sub.card_name = card_name
+            
+        # 🛡️ SECURITY: Only store/update last 4 digits if valid card number provided
         if card_number:
-            # ⚠️ SECURITY: 카드 번호는 마지막 4자리만 저장
-            sub.card_number = mask_card_number(card_number)
+            masked = mask_card_number(card_number)
+            if masked:
+                sub.card_number = masked
             
         # Set period (Monthly)
         now = datetime.utcnow()
@@ -183,6 +212,74 @@ class SubscriptionService:
             await self.db.commit()
             await self.db.refresh(sub)
         return sub
+
+    async def update_ai_reply_limit_for_plan(self, subscription: Subscription, plan_name: str):
+        """
+        AI 자동응답(맛보기) 한도:
+        - Basic 유료 플랜: 50회/월
+        - AI 트랙 플랜: 플랜별 제한 (starter/pro) + business 무제한
+        - Free: 0
+        """
+        name = (plan_name or "free").lower()
+        if name == "ai-starter":
+            subscription.ai_reply_limit = 1000
+        elif name == "ai-pro":
+            subscription.ai_reply_limit = 5000
+        elif name == "ai-business":
+            subscription.ai_reply_limit = 0  # unlimited
+        elif name == "ai-free":
+            subscription.ai_reply_limit = 0
+        elif name.startswith("basic-") and name not in ["basic-free"]:
+            subscription.ai_reply_limit = 50
+        else:
+            subscription.ai_reply_limit = 0
+        subscription.updated_at = datetime.utcnow()
+        return subscription
+
+    async def check_ai_reply_limit(self, customer_id: uuid.UUID) -> dict:
+        """
+        Returns dict:
+        - allowed: bool
+        - limit: int (0 means unlimited or not available)
+        - count: int
+        - remaining: int
+        """
+        sub = await self.get_subscription(customer_id)
+        if not sub:
+            sub = await self.create_or_update_subscription(customer_id, "free")
+
+        if sub.status != "active":
+            return {"allowed": False, "limit": sub.ai_reply_limit or 0, "count": sub.ai_reply_count or 0, "remaining": 0}
+
+        plan = (sub.plan_name or "free").lower()
+        limit = int(sub.ai_reply_limit or 0)
+
+        # Unlimited (0 means unlimited) for certain plans (e.g. ai-business)
+        if plan.startswith("ai-") and limit == 0:
+            return {"allowed": True, "limit": 0, "count": int(sub.ai_reply_count or 0), "remaining": 0}
+
+        # Basic paid: trial
+        if limit <= 0:
+            return {"allowed": False, "limit": 0, "count": int(sub.ai_reply_count or 0), "remaining": 0}
+
+        count = int(sub.ai_reply_count or 0)
+        remaining = max(0, limit - count)
+        return {"allowed": remaining > 0, "limit": limit, "count": count, "remaining": remaining}
+
+    async def increment_ai_reply_usage(self, customer_id: uuid.UUID) -> dict:
+        sub = await self.get_subscription(customer_id)
+        if not sub:
+            sub = await self.create_or_update_subscription(customer_id, "free")
+
+        plan = (sub.plan_name or "free").lower()
+        limit = int(sub.ai_reply_limit or 0)
+        # Unlimited (0 means unlimited) — no need to increment
+        if plan.startswith("ai-") and limit == 0:
+            return {"new_count": int(sub.ai_reply_count or 0), "limit": 0}
+
+        sub.ai_reply_count = int(sub.ai_reply_count or 0) + 1
+        await self.db.commit()
+        return {"new_count": int(sub.ai_reply_count or 0), "limit": int(sub.ai_reply_limit or 0)}
 
     async def log_payment(
         self,
@@ -505,6 +602,26 @@ class SubscriptionService:
             sub.status = "expired"
             sub.updated_at = now
             await self.db.commit()
+
+        # [CRITICAL SECURITY FIX] Double-check against payment history before returning
+        from app.models.subscription import PaymentHistory
+        history_query = await self.db.execute(
+            select(PaymentHistory)
+            .where(PaymentHistory.customer_id == customer_id, PaymentHistory.status == "paid")
+            .order_by(PaymentHistory.paid_at.desc())
+            .limit(1)
+        )
+        latest_paid = history_query.scalar_one_or_none()
+        
+        if latest_paid and (sub.status != "active" or sub.plan_name == "free"):
+            # Plan exists but sub state is wrong - FORCE RECOVERY
+            logger.warning(f"🛡️ Security Recovery: Customer {customer_id} has paid history but wrong sub status. Fixing...")
+            sub.status = "active"
+            if sub.plan_name == "free":
+                sub.plan_name = self.map_plan_name(latest_paid.merchant_uid.split('_')[0])
+            sub.current_period_start = latest_paid.paid_at
+            sub.next_billing_date = latest_paid.paid_at + relativedelta(months=1)
+            await self.db.commit()
             
         current_date = datetime.utcnow()
         days_left = 0
@@ -521,6 +638,21 @@ class SubscriptionService:
             .limit(1)
         )
         latest_payment = payment_query.scalar_one_or_none()
+
+        # [AUTO-RECOVERY] If sub is expired but we have a very recent payment, fix it on the fly
+        if (sub.status == "expired" or sub.plan_name == "free") and latest_payment:
+            # If payment was within the last 30 days but subscription is somehow free/expired
+            now = datetime.utcnow()
+            if latest_payment.paid_at >= (now - timedelta(days=32)):
+                logger.info(f"🛡️ On-the-fly recovery: Correcting status for customer {customer_id} based on payment history")
+                sub.status = "active"
+                # Re-map from payment history if sub data was lossy
+                if sub.plan_name == "free":
+                    sub.plan_name = self.map_plan_name(latest_payment.merchant_uid.split('_')[0]) 
+                # Re-calculate end date based on payment date
+                sub.current_period_start = latest_payment.paid_at
+                sub.next_billing_date = latest_payment.paid_at + relativedelta(months=1)
+                await self.db.commit()
 
         # Calculate daily usage for response
         from datetime import date
@@ -747,6 +879,108 @@ class SubscriptionService:
                 return token
         return None
 
+    @staticmethod
+    def extract_card_info(data: dict) -> tuple[Optional[str], Optional[str]]:
+        """
+        🕵️ [FINAL] 포트원 V2 실제 응답 구조 기반 최종 추출 로직.
+        실제 데이터 확인 결과: card.name에 한글 명칭, card.number에 마스킹된 번호가 위치함.
+        """
+        if not data:
+            return None, None
+
+        # 1. 명확한 카드 객체 타겟팅 (최우선 순위)
+        card_obj = data.get("method", {}).get("card") or data.get("card") or data.get("methodDetails", {}).get("card") or {}
+        
+        # 1순위: 'name'(한글명), 2순위: 'issuerName'
+        issuer_display = card_obj.get("name") or card_obj.get("issuerName") or card_obj.get("issuer") or card_obj.get("publisher")
+        number = card_obj.get("number") or card_obj.get("lastFourDigits")
+        
+        # 2. 카드 객체가 완전히 텅 비었을 경우에만 최후의 발악으로 딥 파인드 수행
+        if not issuer_display and not number:
+            def deep_find(obj, targets):
+                found = {}
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        for t in targets:
+                            if t.lower() == k.lower(): # 정확히 일치하거나
+                                if isinstance(v, (str, int)) and v:
+                                    found[t] = v
+                        found.update(deep_find(v, targets))
+                elif isinstance(obj, list):
+                    for item in obj:
+                        found.update(deep_find(item, targets))
+                return found
+
+            # 🚨 주의: 'name'은 channel.name 등 오탐지 위험이 99%이므로 제외하고 검색
+            scan_results = deep_find(data, ["issuer", "issuerName", "number", "lastFourDigits"])
+            issuer_display = scan_results.get("issuerName") or scan_results.get("issuer")
+            number = scan_results.get("number") or scan_results.get("lastFourDigits")
+        
+        # 카드사 매핑 (폴백용)
+        ISSUER_MAP = {
+            "SHINHAN_CARD": "신한카드", "SHINHAN": "신한카드", "HYUNDAI": "현대카드", 
+            "SAMSUNG": "삼성카드", "KOOKMIN": "국민카드", "KB_CARD": "국민카드"
+        }
+        if issuer_display in ISSUER_MAP:
+            issuer_display = ISSUER_MAP[issuer_display]
+        
+        # 🛡️ 안전한 마스킹 처리: 마지막 4글자를 살려서 포맷팅
+        safe_number = None
+        if number:
+            num_str = str(number).strip()
+            # 포트원이 아예 뒷자리만 줬거나 전체를 줬거나, 그냥 무조건 맨 뒤 4글자를 잡음 (예: "724*")
+            last_four_chars = num_str[-4:] if len(num_str) >= 4 else num_str
+            safe_number = f"**** **** **** {last_four_chars}"
+            
+        return issuer_display, safe_number
+
+    async def refund_payment(self, payment_id: str, reason: str = "User Request", amount: int = None) -> dict:
+        """
+        Request a refund through PortOne V2 API.
+        If amount is None, a full refund is processed.
+        """
+        token = await self.get_portone_token()
+        if not token:
+            raise Exception("Failed to fetch PortOne API token for refund")
+
+        payload = {
+            "reason": reason
+        }
+        if amount is not None:
+            payload["amount"] = amount
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{PORTONE_API_URL}/payments/{payment_id}/cancel",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload
+            )
+            
+            if resp.status_code != 200:
+                logger.error(f"Refund failed for {payment_id}: {resp.text}")
+                raise Exception(f"환불 처리 실패: {resp.status_code}")
+
+            data = resp.json()
+            
+            # Update PaymentHistory status in DB
+            result = await self.db.execute(select(PaymentHistory).where(PaymentHistory.imp_uid == payment_id))
+            payment = result.scalar_one_or_none()
+            if payment:
+                payment.status = "cancelled"
+                payment.updated_at = datetime.utcnow()
+                
+                # If this was the active payment for the subscription, consider downgrading or marking expired
+                result_sub = await self.db.execute(select(Subscription).where(Subscription.id == payment.subscription_id))
+                sub = result_sub.scalar_one_or_none()
+                if sub and sub.status == "active":
+                    # For full refunds, we downgrade to free immediately to prevent abuse
+                    if amount is None or amount >= payment.amount:
+                        logger.info(f"Full refund detected. Downgrading customer {sub.customer_id} to free.")
+                        self._downgrade_to_free(sub)
+            
+            await self.db.commit()
+            return data
+
     async def verify_payment(self, payment_id: str) -> dict:
         """
         Verify payment status with PortOne V2 API.
@@ -829,13 +1063,14 @@ class SubscriptionService:
                 logger.info(f"Recurring payment successful for {subscription.customer_id}: {payment_id}")
                 # AUTOMATICALLY EXTEND PERIOD
                 data = resp.json()
-                payment_inner = data.get("payment", {})
-                card_inner = payment_inner.get("card", {})
+                
+                # 💳 범용 추출기 사용 (V2 공식 문서 issuer/brand 대응)
+                final_name, final_num = self.extract_card_info(data)
                 
                 await self.extend_subscription(
                     subscription, 
-                    card_name=card_inner.get("name"), 
-                    card_number=mask_card_number(card_inner.get("number")),
+                    card_name=final_name or "카드", 
+                    card_number=final_num,
                     commit=False
                 )
                 
@@ -849,8 +1084,8 @@ class SubscriptionService:
                     status="paid",
                     currency=subscription.currency,
                     pay_method="billing_key",
-                    card_name=card_inner.get("name"),
-                    card_number=mask_card_number(card_inner.get("number")),
+                    card_name=final_name,
+                    card_number=final_num,
                     commit=False
                 )
                 await self.db.commit()

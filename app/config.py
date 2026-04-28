@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     jwt_secret_key: SecretStr = Field(default=SecretStr("super-secret-dev-key-change-this-in-prod"), alias="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
-    access_token_expire_minutes: int = Field(default=60 * 24 * 30, alias="ACCESS_TOKEN_EXPIRE_MINUTES") # Default 30 days
+    access_token_expire_minutes: int = Field(default=86400, alias="ACCESS_TOKEN_EXPIRE_MINUTES") # Default 60 days (86400 minutes)
 
     google_client_id: str = Field(..., alias="GOOGLE_CLIENT_ID")
     google_client_secret: SecretStr = Field(..., alias="GOOGLE_CLIENT_SECRET")
@@ -84,10 +84,27 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="ap-northeast-2", alias="AWS_REGION")
     use_ses: bool = Field(default=False, alias="USE_SES")
 
+    # Google Cloud Storage (GCS) Configuration
+    gcs_bucket_name: Optional[str] = Field(default="aidm-assets-478801", alias="GCS_BUCKET_NAME")
+    gcp_project_id: str = Field(default="aidm-478801", alias="GCP_PROJECT_ID")
+    gcp_key_path: str = Field(default="./gcp-key.json", alias="GCP_KEY_PATH")
+
 
     @property
     def meta_required_scopes(self) -> List[str]:
         return [scope.strip() for scope in self.meta_required_scopes_raw.split(",") if scope.strip()]
+
+    from pydantic import model_validator
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        """운영 환경에서 기본 비밀키 사용을 차단합니다."""
+        if self.environment == "production":
+            default_key = "super-secret-dev-key-change-this-in-prod"
+            if self.jwt_secret_key.get_secret_value() == default_key:
+                raise ValueError("🚨 SECURITY ERROR: 운영 환경에서 기본 JWT_SECRET_KEY를 사용할 수 없습니다. .env를 확인하세요.")
+            
+            # STATE_SECRET_KEY, TOKEN_ENCRYPTION_KEY 등도 필수로 설정되었는지 확인 (이미 Field(...)로 필수 처리됨)
+        return self
 
 
 @lru_cache(maxsize=1)

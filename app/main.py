@@ -14,8 +14,10 @@ configure_logging()
 logger = get_logger(__name__)
 
 import asyncio
-from datetime import datetime, time, timedelta
-from app.database import get_db_session
+import time
+from datetime import datetime, timedelta, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db_session, AsyncSessionLocal
 from app.services.subscription_service import SubscriptionService
 
 settings = get_settings()
@@ -50,6 +52,8 @@ allowed_origins.extend([
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ])
@@ -58,20 +62,45 @@ allowed_origins.extend([
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 domain = str(settings.api_base_url).split("//")[-1].split("/")[0].split(":")[0]
 allowed_hosts = [
-    "*", # Allow all hosts temporarily to debug connection issues
-    domain, "aidm.kr", "*.a.run.app", "localhost", "127.0.0.1", 
-    "localhost:8000", "127.0.0.1:8000", "*.ngrok-free.app", "*.ngrok.app"
+    domain, "aidm.kr", "api.aidm.kr", "localhost", "127.0.0.1", 
+    "localhost:8000", "127.0.0.1:8000"
 ]
-if ".cloudflare" in domain:
+if settings.environment == "development":
+    # 로컬 개발 환경: ngrok 도메인 자동 허용 (운영 환경과 완전 분리)
+    allowed_hosts.extend(["*.ngrok-free.app", "*.ngrok.io", "*.ngrok.app"])
+    logger.info(f"🛠️  개발 모드: ngrok 도메인 허용됨 ({domain})")
+elif ".cloudflare" in domain:
     allowed_hosts.extend(["*.pages.dev", "*.workers.dev"])
 
 # 2. Add Middlewares (ORDER MATTERS: Last added is outermost)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    # Skip logging for health checks or statics to keep logs clean
+    if request.url.path in ["/health", "/metrics", "/favicon.ico"] or request.url.path.startswith("/static") or request.url.path.startswith("/uploads"):
+        return await call_next(request)
+        
+    origin = request.headers.get("Origin")
+    
+    # PRODUCTION SECURITY: Do NOT log cookies or authorization headers
+    logger.info(f"🚀 INCOMING: {request.method} {request.url.path} | Origin: {origin}")
+    
+    start_time = time.time()
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        logger.error(f"❌ CRASH: {request.method} {request.url.path} - Error: {str(e)}")
+        raise e
+        
+    process_time = (time.time() - start_time) * 1000
+    
+    logger.info(f"✅ COMPLETED: {request.method} {request.url.path} - Status: {response.status_code} ({process_time:.2f}ms)")
+    return response
 
 # Layer 3 (Innermost): Custom Security Headers & Logging
 from starlette.middleware.base import BaseHTTPMiddleware
 class SecurityHeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        logger.info(f"Incoming request: {request.method} {request.url.path}")
         try:
             response = await call_next(request)
             response.headers["X-Frame-Options"] = "DENY"
@@ -104,7 +133,7 @@ app.add_middleware(
 
 # Layer 0 (Entry Point): ProxyHeaders (Detects HTTPS from X-Forwarded-Proto)
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=allowed_hosts)
 
 
 app.include_router(api_router)
@@ -115,42 +144,41 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
+def get_cors_headers(request: Request):
+    """Helper to get consistent CORS headers for exception responses."""
+    origin = request.headers.get("origin")
+    if origin in allowed_origins:
+        cors_origin = origin
+    else:
+        # Fallback to primary production domain or first allowed
+        cors_origin = allowed_origins[0]
+        
+    return {
+        "Access-Control-Allow-Origin": cors_origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """HTTP 예외 핸들러 - 보안이 강화된 CORS 헤더 및 상세 정보 제어"""
-    origin = request.headers.get("origin")
-    cors_origin = origin if origin in allowed_origins else allowed_origins[0]
-    
-    response = JSONResponse(
+    return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
-        headers={
-            "Access-Control-Allow-Origin": cors_origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        },
+        headers=get_cors_headers(request),
     )
-    return response
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """검증 예외 핸들러 - 보안이 강화된 CORS 헤더"""
-    origin = request.headers.get("origin")
-    cors_origin = origin if origin in allowed_origins else allowed_origins[0]
-    
-    response = JSONResponse(
+    return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": exc.errors()},
-        headers={
-            "Access-Control-Allow-Origin": cors_origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        },
+        headers=get_cors_headers(request),
     )
-    return response
 
 
 @app.exception_handler(Exception)
@@ -158,144 +186,191 @@ async def general_exception_handler(request: Request, exc: Exception):
     """일반 예외 핸들러 - 운영 환경에서 상세 스택트레이스 노출 방지"""
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
     
-    origin = request.headers.get("origin")
-    cors_origin = origin if origin in allowed_origins else allowed_origins[0]
-    
     # 보안: 운영 환경인 경우 상세 에러 대신 범용 메시지 출력
     detail = str(exc) if settings.environment == "development" else "내부 서버 오류가 발생했습니다."
     
-    response = JSONResponse(
+    return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": detail},
-        headers={
-            "Access-Control-Allow-Origin": cors_origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        },
+        headers=get_cors_headers(request),
     )
-    return response
 
+
+# --- Background Schedulers (Multi-Worker Safe) ---
+async def acquire_scheduler_lock(db: AsyncSession, task_name: str, interval_seconds: int) -> bool:
+    """
+    SaaS Stability: Prevents multiple workers from running the same background task simultaneously.
+    Uses the database 'scheduler_locks' table to coordinate.
+    """
+    from app.models.scheduler_lock import SchedulerLock
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    import os
+    
+    worker_id = os.getenv("HOSTNAME", "default_worker") # Cloud Run uses HOSTNAME
+    now = datetime.utcnow()
+    
+    try:
+        # 1. Check if the task was run recently
+        stmt = select(SchedulerLock).where(SchedulerLock.task_name == task_name)
+        result = await db.execute(stmt)
+        lock = result.scalar_one_or_none()
+        
+        if lock and lock.last_run_at:
+            # If the task ran successfully within the interval, don't run it again
+            if (now - lock.last_run_at).total_seconds() < interval_seconds:
+                return False
+        
+        # 2. Try to update or insert the lock (Atomic attempt)
+        # Note: In production we use PostgreSQL, so we can use ON CONFLICT
+        # For simplicity and cross-DB support, we'll use a transaction
+        if lock:
+            lock.last_run_at = now
+            lock.worker_id = worker_id
+        else:
+            lock = SchedulerLock(task_name=task_name, last_run_at=now, worker_id=worker_id)
+            db.add(lock)
+            
+        await db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error acquiring scheduler lock for {task_name}: {e}")
+        await db.rollback()
+        return False
 
 async def subscription_scheduler():
     """백그라운드에서 주기적으로 구독 갱신 및 사용량 초기화를 수행합니다."""
-    logger.info("Subscription scheduler started.")
+    logger.info("Subscription scheduler task initialized.")
+    # Wait 2 minutes after startup to avoid crowding the start-up phase
+    await asyncio.sleep(120)
+    
+    interval = 12 * 3600
     while True:
         try:
-            async for db in get_db_session():
-                service = SubscriptionService(db)
-                
-                # 1. 정기 결제 처리 (만료된 구독 자동 갱신)
-                logger.info("Running periodic subscription renewal check...")
-                renewal_results = await service.process_due_subscriptions()
-                logger.info(f"Subscription renewal results: {renewal_results}")
-                
-                # 2. 월간 사용량 초기화 체크 (매월 1일)
-                now = datetime.utcnow()
-                if now.day == 1 and now.hour < 12:
-                    logger.info("First day of the month detected. Usage reset logic can be triggered here.")
-                
-                break # 한 번 처리 후 세션 종료
+            async with AsyncSessionLocal() as db:
+                if await acquire_scheduler_lock(db, "subscription_renewal", interval):
+                    logger.info("📍 [Scheduler] Running subscription renewal...")
+                    service = SubscriptionService(db)
+                    
+                    # 1. 정기 결제 처리 (만료된 구독 자동 갱신)
+                    renewal_results = await service.process_due_subscriptions()
+                    logger.info(f"Subscription renewal results: {renewal_results}")
+                else:
+                    logger.debug("Subscription renewal skipped (already run by another worker).")
         except Exception as e:
             logger.error(f"Error in subscription scheduler: {e}", exc_info=True)
             
-        # 12시간마다 실행
-        await asyncio.sleep(12 * 3600)
-
+        await asyncio.sleep(600) # Check every 10 mins if it's time to run
 
 async def token_refresh_scheduler():
-    """Instagram 액세스 토큰 자동 갱신 스케줄러.
+    """Instagram 액세스 토큰 자동 갱신 스케줄러."""
+    logger.info("Token refresh scheduler task initialized.")
+    # Server start wait
+    await asyncio.sleep(180)
     
-    - 12시간마다 실행되도록 주기를 변경 (기존 24시간)
-    - TokenRefreshService에 모든 복잡한 갱신 판단을 위임
-    """
-    # 서버 시작 직후 1분 대기 (DB 연결 안정화)
-    await asyncio.sleep(60)
-    logger.info("🔑 Token refresh scheduler started.")
-
+    interval = 12 * 3600
     while True:
         try:
-            from sqlalchemy import select
-            from app.models.instagram_account import InstagramAccount
-            from app.database import AsyncSessionLocal
-            from app.services.token_refresh_service import TokenRefreshService
-            from app.services.customer_service import CustomerService
-            from app.config import get_settings
-
-            _settings = get_settings()
-
             async with AsyncSessionLocal() as db:
-                # 1. 토큰이 있는 모든 계정 조회
-                stmt = select(InstagramAccount).where(
-                    InstagramAccount.access_token.isnot(None),
-                    InstagramAccount.connection_status == "CONNECTED"
-                )
-                result = await db.execute(stmt)
-                accounts = result.scalars().all()
+                if await acquire_scheduler_lock(db, "token_refresh", interval):
+                    from app.models.instagram_account import InstagramAccount
+                    from app.services.token_refresh_service import TokenRefreshService
+                    from app.services.customer_service import CustomerService
+                    from sqlalchemy import select
 
-                logger.info(f"🔑 Token refresh check: {len(accounts)} connected accounts")
-                refreshed = 0
-                failed = 0
-                skipped = 0
+                    _settings = get_settings()
+                    
+                    # 1. 토큰이 있는 모든 계정 조회
+                    stmt = select(InstagramAccount).where(
+                        InstagramAccount.access_token.isnot(None),
+                        InstagramAccount.connection_status == "CONNECTED"
+                    )
+                    result = await db.execute(stmt)
+                    accounts = result.scalars().all()
 
-                # TokenRefreshService 인스턴스화
-                customer_service = CustomerService()
-                token_service = TokenRefreshService(settings=_settings, customer_service=customer_service)
+                    logger.info(f"🔑 [Scheduler] Token refresh check: {len(accounts)} connected accounts")
+                    
+                    customer_service = CustomerService()
+                    token_service = TokenRefreshService(settings=_settings, customer_service=customer_service)
 
-                for account in accounts:
-                    try:
-                        # get_refreshed_token 내부에서
-                        # - 만료 기간 체크
-                        # - 토큰 타입에 따른 FB/IG API 선택
-                        # - 만료 일자 갱신
-                        # - 에러 시 DISCONNECTED 마킹 등 모든 처리를 캡슐화
-                        
-                        original_token = account.access_token
-                        new_token = await token_service.get_refreshed_token(db, account)
-                        
-                        # connection_status가 TokenRefreshService 내에서 바뀌었을 수 있음
-                        if account.connection_status == "DISCONNECTED":
-                            failed += 1
-                        elif original_token != new_token and new_token:
-                            refreshed += 1
-                        else:
-                            skipped += 1
+                    refreshed = 0
+                    failed = 0
+                    skipped = 0
+
+                    for account in accounts:
+                        try:
+                            original_token = account.access_token
+                            new_token = await token_service.get_refreshed_token(db, account)
                             
-                    except Exception as loop_e:
-                        logger.error(f"Error checking token for account {account.id}: {loop_e}")
-                        failed += 1
+                            if account.connection_status == "DISCONNECTED":
+                                failed += 1
+                            elif original_token != new_token and new_token:
+                                refreshed += 1
+                            else:
+                                skipped += 1
+                        except Exception as loop_e:
+                            logger.error(f"Error checking token for account {account.id}: {loop_e}")
+                            failed += 1
 
-                logger.info(
-                    f"✅ Token refresh scheduler finished. "
-                    f"refreshed={refreshed}, failed/disconnected={failed}, skipped={skipped}"
-                )
+                    logger.info(
+                        f"✅ Token refresh scheduler finished. "
+                        f"refreshed={refreshed}, failed={failed}, skipped={skipped}"
+                    )
+                else:
+                    logger.debug("Token refresh skipped (already run by another worker).")
 
         except Exception as e:
             logger.error(f"🚨 Token refresh scheduler crashed: {e}", exc_info=True)
 
-        # 12시간 대기
-        await asyncio.sleep(12 * 3600)
+        await asyncio.sleep(600) # Check every 10 mins
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Starting Instagram Auth Service in %s mode", settings.environment)
-    await init_db()
     
-    # 구독 스케줄러 시작
-    asyncio.create_task(subscription_scheduler())
-    
-    # 토큰 자동 갱신 스케줄러 시작
-    asyncio.create_task(token_refresh_scheduler())
-    logger.info("✅ Token auto-refresh scheduler started (runs every 24h)")
+    # Standard SaaS Resilience: Initialize DB and Schedulers in background 
+    # to avoid blocking the HTTP server during startup.
+    async def background_init():
+        try:
+            await init_db()
+            # 구독 스케줄러 시작
+            asyncio.create_task(subscription_scheduler())
+            # 토큰 자동 갱신 스케줄러 시작
+            asyncio.create_task(token_refresh_scheduler())
+            logger.info("✅ Database initialized and schedulers started in background.")
+        except Exception as e:
+            logger.error(f"❌ Critical error during background initialization: {e}")
+
+    asyncio.create_task(background_init())
 
 
 @app.get("/health", include_in_schema=False)
 async def health_check():
-    """Health check - returns minimal info in production."""
+    """Health check - returns status and ensures DB connectivity."""
+    health_info = {"status": "ok"}
+    
+    # Deep health check: verify DB connectivity
+    try:
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        health_info["database"] = "connected"
+    except Exception as e:
+        logger.error(f"Health check failed (DB): {e}")
+        health_info["status"] = "unhealthy"
+        health_info["database"] = "error"
+        return JSONResponse(status_code=503, content=health_info)
+
     if settings.environment == "production":
-        return {"status": "ok"}
-    return {"status": "ok", "service": "instagram-auth-service", "env": settings.environment}
+        return health_info
+        
+    health_info.update({
+        "service": "instagram-auth-service",
+        "env": settings.environment,
+        "time": datetime.utcnow().isoformat()
+    })
+    return health_info
 
 
 

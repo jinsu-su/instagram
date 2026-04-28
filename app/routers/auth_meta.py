@@ -23,12 +23,14 @@ settings = get_settings()
 
 @router.get("/login", response_model=AuthRedirect)
 async def meta_login(
+    request: Request,
     redirect_uri: str | None = Query(default=None, description="Override onboarding redirect path after success"),
     use_business_login: bool = Query(default=False, description="Use Facebook Login for Business (response_type=token) or standard OAuth (response_type=code). 기본값은 False(code 방식)로 모든 권한을 확실히 받기 위해"),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
 ) -> AuthRedirect:
     """JSON으로 인증 URL 반환"""
-    auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login)
+    base_url = str(request.base_url).rstrip("/")
+    auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login, base_url=base_url)
     return AuthRedirect(authorization_url=auth_url, state=state)
 
 
@@ -40,7 +42,8 @@ async def meta_login_redirect(
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
 ):
     """메타(페이스북) 로그인 페이지로 직접 리다이렉트 (302)"""
-    auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login)
+    base_url = str(request.base_url).rstrip("/")
+    auth_url, state = oauth_service.build_authorization_url(redirect_uri=redirect_uri, use_business_login=use_business_login, base_url=base_url)
     return RedirectResponse(url=str(auth_url), status_code=status.HTTP_302_FOUND)
 
 
@@ -60,8 +63,9 @@ async def meta_callback(
     """
     if error:
         logger.error(f"Meta OAuth error: {error} - {error_description}")
-        frontend_url = str(settings.frontend_base_url)
-        error_redirect = f"{frontend_url}/dashboard?error={error}&error_reason={error_reason or ''}&error_description={error_description or ''}"
+        from app.main import allowed_origins
+        frontend_url = str(settings.frontend_base_url).rstrip("/")
+        error_redirect = f"{frontend_url}/dashboard?error=auth_failed&error_description=인증에 실패했습니다."
         return RedirectResponse(url=error_redirect)
 
     from fastapi.responses import HTMLResponse
@@ -158,6 +162,7 @@ async def meta_callback(
 
 @router.get("/finalize")
 async def meta_finalize(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
@@ -168,15 +173,12 @@ async def meta_finalize(
     Performs token exchange and DB save for standard OAuth.
     """
     try:
-        result: MetaCallbackResult = await oauth_service.handle_callback(code=code, state=state, db=db)
+        base_url = str(request.base_url).rstrip("/")
+        result: MetaCallbackResult = await oauth_service.handle_callback(code=code, state=state, db=db, base_url=base_url)
         return {"success": True, "redirect_url": str(result.redirect_url)}
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Unexpected error in Meta OAuth callback: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "인증 완료 중 오류가 발생했습니다."}
 
 
 
@@ -222,13 +224,9 @@ async def meta_callback_token(
             content={"redirect_url": error_redirect, "error": e.detail}
         )
     except Exception as e:
-        logger.error(f"Unexpected error in Meta OAuth token callback: {str(e)}")
-        logger.error(traceback.format_exc())
-        frontend_url = str(settings.frontend_base_url)
-        error_redirect = f"{frontend_url}/dashboard?error=internal_error&error_description={str(e)}"
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"redirect_url": error_redirect, "error": str(e)}
+            content={"redirect_url": f"{str(settings.frontend_base_url)}/dashboard?error=internal_error", "error": "서버 내부 오류가 발생했습니다."}
         )
 
 

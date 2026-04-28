@@ -32,7 +32,7 @@ async def verify_webhook(
             logger.info("✅ Webhook verification successful")
             return PlainTextResponse(content=hub_challenge)
         else:
-            logger.warning(f"❌ Webhook verification failed: {hub_verify_token} != {expected_token}")
+            logger.warning(f"❌ Webhook verification failed: token mismatch (received token does not match configured verify token)")
             raise HTTPException(status_code=403, detail="Verification token mismatch")
     
     return PlainTextResponse(content="Invalid verification request", status_code=400)
@@ -44,7 +44,8 @@ async def background_process_webhook(data: dict, headers: dict = None):
     """
     async with AsyncSessionLocal() as db:
         try:
-            logger.info(f"🔍 [Webhook Raw Payload] {data}")
+            # logger.debug(f"🔍 [Webhook Raw Payload] {data}")
+            logger.info(f"🔍 Webhook received for object: {data.get('object')}")
             processor = CampaignProcessor(db)
             
             if data.get("object") == "instagram":
@@ -124,7 +125,8 @@ async def background_process_webhook(data: dict, headers: dict = None):
                                 await processor.process_story_mention(
                                     page_id=recipient_id, 
                                     instagram_id=sender_id,
-                                    created_at=created_at
+                                    created_at=created_at,
+                                    mid=message_data.get("mid")
                                 )
                             else:
                                 text = message_data.get("text", "")
@@ -168,7 +170,7 @@ async def background_process_webhook(data: dict, headers: dict = None):
                                                     profile_pic = p_data.get("profile_pic")
                                                     logger.info(f"✨ [Webhook] Successfully fetched profile for {sender_id}: @{username}")
                                                 else:
-                                                    logger.warning(f"⚠️ Profile API failed for {sender_id}: {resp.text}")
+                                                    logger.warning(f"⚠️ Profile API failed for {sender_id}: { "Response Text Masked" }")
                                             except Exception as e:
                                                 logger.error(f"Failed to fetch messaging profile: {e}")
                                 
@@ -225,7 +227,7 @@ async def receive_webhook(
     
     # 1. Read body once (can only be read once in FastAPI)
     body = await request.body()
-    logger.info(f"📦 [Webhook Body Received] Size: {len(body)} bytes")
+    # logger.info(f"📦 [Webhook Body Received] Size: {len(body)} bytes")
     
     # 2. Verify Signature
     signature = request.headers.get("X-Hub-Signature-256")
@@ -260,7 +262,7 @@ async def receive_webhook(
         # In production, we MUST reject unauthorized requests to protect customer data
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
-    logger.info(f"📥 Parsed Webhook Object: {data.get('object')} with {len(data.get('entry', []))} entries")
+    # logger.info(f"📥 Parsed Webhook Object: {data.get('object')} with {len(data.get('entry', []))} entries")
 
     # 5. Queue processing in the background
     background_tasks.add_task(background_process_webhook, data, dict(request.headers))

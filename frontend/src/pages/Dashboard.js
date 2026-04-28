@@ -9,9 +9,9 @@ import {
   ChevronLeft, ChevronRight, Bot, Key, Lock, Plus, Trash2, Link as LinkIcon,
   LayoutGrid, Grid, ArrowLeft, Image as ImageIcon, ArrowRight,
   Search, Tag, Filter, User, UserCheck, MoreHorizontal, Activity, BrainCircuit,
-  MessageCircle, Instagram, CheckCircle2, Lightbulb, LayoutDashboard, RefreshCw, RefreshCcw, RotateCw,
+  MessageCircle, Instagram, CheckCircle2, Lightbulb, LayoutDashboard, RefreshCw, RefreshCcw, RotateCw, Info,
   DollarSign, Star, ArrowUpRight, Send, Upload, BookOpen, Layout, MessageSquareText,
-  Target, Shuffle, CreditCard, Square, Bookmark, Eye, EyeOff, Share2, ImagePlus, Type, AlignLeft
+  Target, Shuffle, CreditCard, Square, Bookmark, Eye, EyeOff, Share2, ImagePlus, Type, AlignLeft, UserPlus
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -59,6 +59,46 @@ class DashboardErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+const PremiumFeatureLock = ({ title, description, onUpgrade }) => {
+  return (
+    <div className="relative w-full min-h-[400px] flex items-center justify-center overflow-hidden rounded-[2rem] bg-gray-50 border border-gray-100 group my-4">
+      {/* Background decoration elements */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] animate-pulse"></div>
+        <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-pink-500/10 rounded-full blur-[100px] animate-pulse delay-700"></div>
+      </div>
+
+      <div className="relative z-10 max-w-lg text-center px-8 flex flex-col items-center py-12">
+        <div className="w-20 h-20 bg-white rounded-[2rem] shadow-xl flex items-center justify-center mb-6 transform group-hover:scale-110 transition-transform duration-500 border border-indigo-50">
+          <Lock className="w-8 h-8 text-indigo-600" />
+        </div>
+
+        <h2 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">
+          {title} <span className="text-indigo-600">(AI 요금제)</span>
+        </h2>
+
+        <p className="text-gray-500 font-bold mb-8 leading-relaxed text-sm">
+          {description}
+        </p>
+
+        <Button
+          onClick={onUpgrade}
+          className="w-full h-14 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-[1.5rem] font-black text-lg shadow-[0_15px_30px_-10px_rgba(79,70,229,0.5)] hover:shadow-[0_20px_40px_-10px_rgba(79,70,229,0.6)] hover:scale-[1.02] active:scale-95 transition-all"
+        >
+          AI 요금제로 업그레이드하기
+        </Button>
+
+        <p className="mt-4 text-[11px] text-gray-400 font-bold flex items-center gap-2">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> 프리미엄 기능을 지금 바로 시작해 보세요
+        </p>
+      </div>
+
+      {/* Glassmorphism blur overlay */}
+      <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] -z-10"></div>
+    </div>
+  );
+};
 
 const REPLY_PRESETS = [
   "1분 내로 링크가 담긴 DM을 받으실 거예요~ 🎇",
@@ -313,6 +353,24 @@ function Dashboard() {
   const subscriptionMenuRef = useRef(null);
   const notificationMenuRef = useRef(null);
 
+  // Resilience Shield: Track which sections of the dashboard failed to load
+  const [sectionErrors, setSectionErrors] = useState({
+    stats: false,
+    insights: false,
+    activities: false,
+    automation: false,
+    keyword: false,
+    subscription: false,
+    webhook: false,
+    eligibility: false,
+    conversations: false,
+    ig_insights: false,
+    page_insights: false,
+    ai_settings: false,
+    flows: false,
+    comments: false
+  });
+
   // Keyword Reply UI State
   const [activeTabMap, setActiveTabMap] = useState({});
   const [showPresetModal, setShowPresetModal] = useState(false);
@@ -320,7 +378,7 @@ function Dashboard() {
   const [targetReplyForModal, setTargetReplyForModal] = useState(null);
   // Synchronous URL parsing for production-grade UX (Eliminates flicker)
   const queryParams = new URLSearchParams(window.location.search);
-  
+
   // NOTE: Token extraction is now handled by PrivateRoute to avoid redirect loops.
   const initialCustomerId = queryParams.get('customer_id') || localStorage.getItem('customer_id') || '';
   const initialShowTransfer = queryParams.get('confirm_transfer') === 'true' && queryParams.has('target_page_id');
@@ -389,6 +447,42 @@ function Dashboard() {
   const [aiKnowledgeBaseUrl, setAiKnowledgeBaseUrl] = useState(null);
   const [aiKnowledgeBaseFilename, _setAiKnowledgeBaseFilename] = useState(null);
 
+  // Helper: extract user-friendly filename from URL or stored filename
+  // URL structure is: .../folder/uuid/original_name so we grab the last segment
+  const getDisplayFilename = (storedFilename, url) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    // If stored filename exists and is NOT a UUID-like string, use it directly
+    if (storedFilename && typeof storedFilename === 'string' && storedFilename.trim()) {
+      const nameOnly = storedFilename.replace(/\.[^.]+$/, ''); // strip extension for UUID check
+      if (!uuidRegex.test(nameOnly)) {
+        return storedFilename;
+      }
+    }
+    // Try to extract original filename from the URL path (uuid/original_name structure)
+    if (url && typeof url === 'string') {
+      try {
+        const urlPath = new URL(url).pathname;
+        const segments = urlPath.split('/').filter(Boolean);
+        if (segments.length >= 2) {
+          const lastSegment = decodeURIComponent(segments[segments.length - 1]);
+          const secondLast = segments[segments.length - 2];
+          // If second-to-last segment is a UUID, the last segment is the original filename
+          if (uuidRegex.test(secondLast) && lastSegment && !uuidRegex.test(lastSegment.replace(/\.[^.]+$/, ''))) {
+            return lastSegment;
+          }
+        }
+        // Fallback: just use the last segment of the URL
+        const lastSeg = decodeURIComponent(segments[segments.length - 1] || '');
+        if (lastSeg && !uuidRegex.test(lastSeg.replace(/\.[^.]+$/, ''))) {
+          return lastSeg;
+        }
+      } catch (e) { /* URL parsing failed, continue to fallback */ }
+    }
+    // Final fallback: show a friendly generic name with extension if possible
+    const ext = (storedFilename || url || '').match(/\.([a-zA-Z0-9]+)$/)?.[1];
+    return ext ? `참조 파일.${ext}` : '참조 파일';
+  };
+
   // Safety wrapper for filename state
   const setAiKnowledgeBaseFilename = (val) => {
     if (val && typeof val !== 'string') {
@@ -440,6 +534,8 @@ function Dashboard() {
   const [keywordRepliesLoading, setKeywordRepliesLoading] = useState(true);
   const [keywordRepliesSaving, setKeywordRepliesSaving] = useState(false);
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [basicSummary, setBasicSummary] = useState(null);
+  const [basicSummaryLoading, setBasicSummaryLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [aiInsights, setAiInsights] = useState(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
@@ -449,6 +545,7 @@ function Dashboard() {
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   const [activitySearchTerm, setActivitySearchTerm] = useState('');
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState([]);
 
   // Keyword Deletion Confirmation State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -458,7 +555,17 @@ function Dashboard() {
   useEffect(() => {
     if (customerId && (currentView === 'comments' || currentView === 'aiguard')) {
       loadGalleryPosts(customerId);
+      loadRecentPostsForAnalysis(customerId); // Ensure this view also refreshes
       loadModerationSettings(customerId);
+    }
+    
+    // Auto-refresh summary and builder media when switching to automation/dashboard
+    if (customerId && (currentView === 'dashboard' || currentView === 'automation')) {
+      loadBasicDashboardSummary(customerId);
+      loadAutomationStats(customerId);
+      if (currentView === 'automation' && automationView === 'builder') {
+        loadUserMedia(customerId);
+      }
     }
   }, [customerId, currentView]);
 
@@ -515,14 +622,32 @@ function Dashboard() {
     is_active: true
   });
   const [automationView, setAutomationView] = useState('active'); // 'active', 'templates', 'keyword'
+  const [showPostPicker, setShowPostPicker] = useState(false);
+  const [showTargetPostPreview, setShowTargetPostPreview] = useState(false);
+  const [targetPostPreview, setTargetPostPreview] = useState(null);
+  const [showTargetPostsPreview, setShowTargetPostsPreview] = useState(false);
+  const [targetPostsPreview, setTargetPostsPreview] = useState([]);
+  const [showBasicKpiDetailModal, setShowBasicKpiDetailModal] = useState(false);
+  const [basicKpiDetail, setBasicKpiDetail] = useState(null);
+  const MAX_SIMPLE_AUTOMATION_POSTS = 5;
+  const [builderTargetPosts, setBuilderTargetPosts] = useState([]); // Array of { id, media_url, caption, permalink }
+  const [builderKeywords, setBuilderKeywords] = useState(['링크', '구매']); // Array of keywords
+  const [builderEditIndex, setBuilderEditIndex] = useState(null);
+  const [keywordInputValue, setKeywordInputValue] = useState('');
+  const [builderFollowCheck, setBuilderFollowCheck] = useState(false);
+  const [builderFollowMessage, setBuilderFollowMessage] = useState('댓글을 남겨주셔서 감사합니다! 팔로우 확인을 위해 아래 버튼을 눌러주세요! 팔로우가 확인되면 요청하신 정보가 즉시 전송됩니다 😆');
+  const [builderFollowButtonText, setBuilderFollowButtonText] = useState('팔로우 확인 및 정보 받기');
+  const [builderDmMessage, setBuilderDmMessage] = useState('안녕하세요! 요청하신 시크릿 링크를 보내드립니다 😆\n\n👇 아래 링크를 클릭해주세요!');
+  const [nextCursor, setNextCursor] = useState(null);
+  const [isMoreLoading, setIsMoreLoading] = useState(false);
 
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Handle Instagram Business Login (Step 1)
   const handleInstagramLogin = () => {
-    const onboardPath = '/dashboard'; 
+    const onboardPath = '/dashboard';
     const redirectUri = `${window.location.origin}${onboardPath}`;
-    
+
     // 운영 환경에서 신뢰성이 높은 직접 리다이렉트 방식으로 변경
     // 백엔드에서 302 Redirect를 통해 인스타그램 로그인 페이지로 바로 이동합니다.
     const authUrl = `${INSTAGRAM_API_BASE_URL}/auth/instagram-basic/login/redirect?customer_id=${customerId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
@@ -533,7 +658,7 @@ function Dashboard() {
   const handleMetaLogin = () => {
     const onboardPath = '/dashboard';
     const redirectUri = `${window.location.origin}${onboardPath}`;
-    
+
     // 운영 환경에서 신뢰성이 높은 직접 리다이렉트 방식으로 변경
     // 백엔드에서 302 Redirect를 통해 메타(페이스북) 로그인 페이지로 바로 이동합니다.
     const authUrl = `${INSTAGRAM_API_BASE_URL}/auth/meta/login/redirect?redirect_uri=${encodeURIComponent(redirectUri)}`;
@@ -595,7 +720,14 @@ function Dashboard() {
       msg || '프리미엄 요금제로 연장해야 이용할 수 있습니다.',
       'error',
       '',
-      { label: '결제하러 가기', onClick: () => setCurrentView('subscription') }
+      {
+        label: '결제하러 가기',
+        onClick: () => {
+          setCurrentView('subscription');
+          setShowScenarioModal(false);
+          setShowFlowModal(false);
+        }
+      }
     );
   };
 
@@ -645,6 +777,22 @@ function Dashboard() {
   const [activeSegment, setActiveSegment] = useState('all'); // 'all', 'vip', 'potential', 'inquiry'
 
 
+  const renderDataError = (sectionName, retryFn) => (
+    <div className="flex flex-col items-center justify-center p-8 bg-gray-50/50 rounded-[2rem] border border-dashed border-gray-200 animate-in fade-in duration-500">
+      <AlertCircle className="w-8 h-8 text-gray-300 mb-3" />
+      <p className="text-sm font-bold text-gray-500 mb-4">데이터를 불러오지 못했습니다.</p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={retryFn}
+        className="rounded-xl bg-white border border-gray-200 text-gray-600 font-bold h-9 px-4 hover:bg-gray-900 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
+      >
+        <RefreshCw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
+        다시 불러오기
+      </Button>
+    </div>
+  );
+
   const renderLoadingScreen = () => {
     if (initializationError) {
       return (
@@ -656,12 +804,12 @@ function Dashboard() {
               {initializationError}<br />
               서버가 점검 중이거나 일시적인 장애가 있을 수 있습니다.
             </p>
-            <Button 
+            <Button
               onClick={() => {
                 setInitializationError(null);
                 setPageLoading(true);
                 // Trigger reload via cid reset logic or direct call
-                window.location.reload(); 
+                window.location.reload();
               }}
               className="w-full rounded-2xl bg-gray-900 text-white h-14 font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-gray-200"
             >
@@ -734,7 +882,7 @@ function Dashboard() {
     const status = customerStatus?.instagram_account?.connection_status;
     const isDisconnected = status === 'DISCONNECTED';
     const isExpired = status === 'EXPIRED';
-    
+
     if (!isDisconnected && !isExpired) return null;
 
     if (isExpired) {
@@ -1114,6 +1262,105 @@ function Dashboard() {
     }
   };
 
+  const handleCreateSimpleFlow = async () => {
+    if (!customerId) return;
+    if (builderTargetPosts.length === 0) {
+      showNotify('게시물을 먼저 선택해주세요.', 'warning');
+      return;
+    }
+    if (builderTargetPosts.length > MAX_SIMPLE_AUTOMATION_POSTS) {
+      showNotify(`초간편 자동화는 최대 ${MAX_SIMPLE_AUTOMATION_POSTS}개의 게시물까지만 선택할 수 있습니다.`, 'warning');
+      return;
+    }
+    if (builderKeywords.length === 0) {
+      showNotify('최소 1개 이상의 키워드를 추가해주세요.', 'warning');
+      return;
+    }
+    if (!builderDmMessage.trim()) {
+      showNotify('발송할 메시지를 입력하세요.', 'warning');
+      return;
+    }
+
+    try {
+      setFlowsSaving(true);
+
+      const newRule = {
+        keyword: builderKeywords[0] || "",
+        keywords: builderKeywords,
+        message: builderDmMessage,
+        media_ids: builderTargetPosts.map(p => p.id),
+        // Keep backward compatibility with APIs that still persist single target as media_id.
+        media_id: builderTargetPosts.length === 1 ? builderTargetPosts[0].id : null,
+        // Persist minimal post info so previews work even before mediaList loads.
+        media_previews: builderTargetPosts.map(p => ({
+          id: p.id,
+          media_url: p.media_url,
+          thumbnail_url: p.thumbnail_url,
+          caption: p.caption,
+          permalink: p.permalink,
+          url: p.url,
+        })),
+        is_active: true,
+        interaction_type: builderFollowCheck ? 'follow_check' : 'immediate',
+        follow_fail_message: builderFollowCheck ? builderFollowMessage : null,
+        // When follow check is on, these are shown on the initial 'verification' card
+        card_title: builderFollowCheck ? '팔로우 확인이 필요합니다 🔓' : null,
+        card_subtitle: builderFollowCheck ? builderFollowMessage : null,
+        button_text: builderFollowCheck ? builderFollowButtonText : '자세히 보기 🔍',
+        created_at: new Date().toISOString()
+      };
+
+      // Get current rules to append or edit
+      const res = await apiFetch(`/instagram/accounts/keyword-settings?customer_id=${customerId}`);
+      let currentReplies = [];
+      if (res.ok) {
+        const data = await res.json();
+        currentReplies = data.keyword_replies || [];
+      }
+
+      let updatedReplies = [...currentReplies];
+      if (builderEditIndex !== null && builderEditIndex >= 0 && builderEditIndex < updatedReplies.length) {
+        // Keep the old created_at if editing
+        newRule.created_at = updatedReplies[builderEditIndex].created_at || newRule.created_at;
+        updatedReplies[builderEditIndex] = newRule;
+      } else {
+        // Append the new rule
+        updatedReplies.push(newRule);
+      }
+
+      const saveRes = await apiFetch(`/instagram/accounts/keyword-settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          customer_id: customerId,
+          keyword_replies: updatedReplies
+        })
+      });
+
+      if (saveRes.ok) {
+        showNotify(`초간편 자동화가 ${builderEditIndex !== null ? '수정' : '생성'}되었습니다!`, 'success', `${builderTargetPosts.length}개의 게시물에 적용되었습니다.`);
+        // Reset builder state
+        setBuilderTargetPosts([]);
+        setBuilderKeywords(['링크', '구매']);
+        setBuilderDmMessage('안녕하세요! 요청하신 시크릿 링크를 보내드립니다 😆\n\n👇 아래 링크를 클릭해주세요!');
+        setBuilderFollowCheck(false);
+        setBuilderEditIndex(null);
+        // Reload all keyword data
+        await loadKeywordSettings(customerId);
+        setAutomationView('active');
+
+      } else {
+        throw new Error('Failed to save simple flow');
+      }
+    } catch (err) {
+      showNotify('자동화 생성 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setFlowsSaving(false);
+    }
+  };
+
   const [keywordImageUploading, setKeywordImageUploading] = useState({});
 
   const handleKeywordImageUpload = async (e, masterIndex) => {
@@ -1144,7 +1391,7 @@ function Dashboard() {
 
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const actualIndex = masterIndex;
 
     try {
@@ -1164,13 +1411,13 @@ function Dashboard() {
       setKeywordReplies(prev => {
         freshNextReplies = prev.map((r, i) => {
           if (i !== actualIndex) return r;
-          
+
           const currentUrls = [...(r.image_urls || [])];
           // Migrate legacy single image_url to image_urls list if it exists
           if (r.image_url && !currentUrls.includes(r.image_url)) {
             currentUrls.push(r.image_url);
           }
-          
+
           return {
             ...r,
             image_url: null,
@@ -1206,30 +1453,30 @@ function Dashboard() {
 
       const invalidKeyword = finalReplies.find(r => r.is_active && (!r.keyword || r.keyword.trim() === ""));
       if (invalidKeyword) {
-          showNotify("감지할 키워드를 입력해주세요.", "error");
-          setKeywordRepliesSaving(false);
-          return;
+        showNotify("감지할 키워드를 입력해주세요.", "error");
+        setKeywordRepliesSaving(false);
+        return;
       }
 
       const invalidMessage = finalReplies.find(r => r.is_active && (!r.message || r.message.trim() === ""));
       if (invalidMessage) {
-          showNotify("DM 전송 문구를 입력해주세요.", "error");
-          setKeywordRepliesSaving(false);
-          return;
+        showNotify("DM 전송 문구를 입력해주세요.", "error");
+        setKeywordRepliesSaving(false);
+        return;
       }
-      
+
       const targetId = (customerId && String(customerId).toLowerCase() !== 'null') ? customerId : null;
       if (!targetId) {
-          showNotify("고객 정보가 확인되지 않아 저장할 수 없습니다.", "error");
-          return;
+        showNotify("고객 정보가 확인되지 않아 저장할 수 없습니다.", "error");
+        return;
       }
 
       const res = await apiFetch(`/instagram/accounts/keyword-settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           keyword_replies: finalReplies,
-          customer_id: targetId 
+          customer_id: targetId
         }),
       });
       if (res.ok) {
@@ -1247,41 +1494,113 @@ function Dashboard() {
     }
   };
 
-  const loadUserMedia = async (id) => {
+  const loadUserMedia = async (id, after = null) => {
     try {
-      setMediaListLoading(true);
-      const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/ig-media?limit=25`);
+      if (after) {
+        setIsMoreLoading(true);
+      } else {
+        setMediaListLoading(true);
+        setNextCursor(null); // Reset when loading new list
+      }
+
+      const baseUrl = `${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/ig-media?limit=24`;
+      const url = after ? `${baseUrl}&after=${after}` : baseUrl;
+
+      const res = await safeFetch(url);
       if (res.ok) {
         const data = await res.json();
-        setMediaList(data.images || []);
-      }
-    } catch (err) {
+        let newMedia = data.images || [];
 
+        // Normalize media data to ensure 'media_url' is always present
+        newMedia = newMedia.map(item => ({
+          ...item,
+          media_url: item.media_url || item.url || item.thumbnail_url
+        }));
+
+        if (after) {
+          setMediaList(prev => [...prev, ...newMedia]);
+        } else {
+          setMediaList(newMedia);
+        }
+
+        // Update cursor for next page if available
+        setNextCursor(data.paging?.cursors?.after || null);
+        return data;
+      }
+      return null;
+    } catch (err) {
+      // Fallback: Use dashboard top posts if API fails
+      if (!after && basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {
+        setMediaList(basicSummary.top_posts);
+      }
+      return null;
     } finally {
-      setMediaListLoading(false);
+      if (after) {
+        setIsMoreLoading(false);
+      } else {
+        setMediaListLoading(false);
+      }
     }
   };
 
   const loadDashboardStats = async (id) => {
     try {
+      setSectionErrors(prev => ({ ...prev, stats: false }));
       const res = await apiFetch(`/admin/customers/${id}/dashboard-stats`);
-      if (!res.ok) throw new Error('Failed to load dashboard stats.');
-      const data = await res.json();
-      setDashboardStats(data);
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardStats(data || { total_comments: 0, total_automated: 0, growth_rate: 0 });
+      } else {
+        setSectionErrors(prev => ({ ...prev, stats: true }));
+      }
     } catch (err) {
-
+      setSectionErrors(prev => ({ ...prev, stats: true }));
+      if (!dashboardStats) setDashboardStats({ total_comments: 0, total_automated: 0, growth_rate: 0, error: true });
     }
   };
 
   const loadSubscriptionStatus = async (id = null) => {
     try {
       setSubscriptionLoading(true);
-      const res = await apiFetch('/api/subscription/status');
-      if (!res.ok) throw new Error('Failed to load subscription status.');
-      const data = await res.json();
-      setSubscriptionStatus(data);
-    } catch (err) {
+      setSectionErrors(prev => ({ ...prev, subscription: false }));
+      
+      let statusData = { plan_name: 'free', status: 'expired' };
+      let historyData = [];
 
+      try {
+        const [statusRes, historyRes] = await Promise.all([
+          apiFetch('/api/subscription/status'),
+          apiFetch('/api/subscription/history')
+        ]);
+
+        if (statusRes.ok) statusData = await statusRes.json();
+        if (historyRes.ok) {
+          historyData = await historyRes.json();
+          setPaymentHistory(historyData);
+        }
+
+        // [CENTRAL SYNC] Force override if history shows success
+        const hasPaidHistory = historyData && historyData.length > 0 && historyData[0].status === 'paid';
+        if (hasPaidHistory) {
+          const nextBillDate = new Date(historyData[0].paid_at);
+          nextBillDate.setMonth(nextBillDate.getMonth() + 1);
+
+          statusData = {
+            ...statusData,
+            plan_name: 'basic-starter',
+            status: 'active',
+            last_payment_date: historyData[0].paid_at,
+            next_billing_date: statusData?.next_billing_date || nextBillDate.toISOString(),
+            payment_method: historyData[0].pay_method,
+            card_name: historyData[0].card_name,
+            card_number: historyData[0].card_number
+          };
+        }
+        setSubscriptionStatus(statusData);
+      } catch (e) {
+        setSubscriptionStatus({ plan_name: 'free', status: 'expired', error: true });
+      }
+    } catch (err) {
     } finally {
       setSubscriptionLoading(false);
     }
@@ -1289,18 +1608,19 @@ function Dashboard() {
 
   const loadAiInsights = async (id) => {
     setAiInsightsLoading(true);
+    setSectionErrors(prev => ({ ...prev, insights: false }));
     try {
       const res = await apiFetch(`/admin/customers/${id}/ai-insights`);
       if (res.ok) {
         const data = await res.json();
-        // If the new data says "no conversations", but we already HAVE insights, keep the old ones.
+        const fallbackMsg = "최근 분석된 데이터가 없습니다. 자동화를 시작해보세요!";
         if (data?.trends?.summary?.includes("최근 대화가 없어") && aiInsights?.trends?.summary) {
-
+          // Keep existing
         } else {
-          setAiInsights(data);
+          setAiInsights(data || { trends: { summary: fallbackMsg }, metrics: [] });
         }
       } else {
-        // Handle 403/429 etc
+        setSectionErrors(prev => ({ ...prev, insights: true }));
         let errorMsg = 'AI 인사이트를 불러올 수 없습니다.';
         try {
           const errData = await res.json();
@@ -1309,24 +1629,44 @@ function Dashboard() {
         setAiInsights({ error: errorMsg });
       }
     } catch (e) {
-
+      setSectionErrors(prev => ({ ...prev, insights: true }));
+      setAiInsights({ error: '네트워크 연결 상태를 확인해주세요.' });
     } finally {
       setAiInsightsLoading(false);
     }
   };
 
   const loadAutomationStats = async (id) => {
-    setAutomationStatsLoading(true);
     try {
+      setAutomationStatsLoading(true);
+      setSectionErrors(prev => ({ ...prev, automation: false }));
       const res = await apiFetch(`/admin/customers/${id}/automation-stats?days=30`);
       if (res.ok) {
         const data = await res.json();
-        setAutomationStats(data);
+        setAutomationStats(data || { active_flows: 0, triggered_today: 0 });
+      } else {
+        setSectionErrors(prev => ({ ...prev, automation: true }));
       }
-    } catch (e) {
-      // automation stats failed silently
+    } catch (err) {
+      setSectionErrors(prev => ({ ...prev, automation: true }));
+      if (!automationStats) setAutomationStats({ active_flows: 0, triggered_today: 0, error: true });
     } finally {
       setAutomationStatsLoading(false);
+    }
+  };
+
+  const loadBasicDashboardSummary = async (id) => {
+    try {
+      setBasicSummaryLoading(true);
+      const res = await apiFetch(`/admin/customers/${id}/basic-dashboard-summary?days=7`);
+      if (res.ok) {
+        const data = await res.json();
+        setBasicSummary(data || { today_automated: 0, today_failed: 0, last7_daily_automated: [], top_posts: [] });
+      }
+    } catch (err) {
+      if (!basicSummary) setBasicSummary({ today_automated: 0, today_failed: 0, last7_daily_automated: [], top_posts: [] });
+    } finally {
+      setBasicSummaryLoading(false);
     }
   };
 
@@ -1350,33 +1690,29 @@ function Dashboard() {
     try {
       setCustomerLoading(true);
       setProfileLoading(true);
-      
-      // Standard SaaS Flow: Initial Session Verification
-      // Using cache-busting timestamp to prevent "Ghost Dashboard" from disk cache
+
       const res = await apiFetch(`/admin/customers/${id}?t=${Date.now()}`);
-      
-      // If the user no longer exists (404) or is unauthorized (401), force logout immediately
+
       if (res.status === 401 || res.status === 404) {
-        console.warn('Session invalid or user not found. Redirecting to landing page...');
         clearSessionAndRedirect();
         return null;
       }
-      
+
       if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       const data = await res.json();
-      
-      // Successfully verified user session
+
       setCustomerStatus(data);
       setCustomerInfo(data);
       return data;
     } catch (err) {
-      console.error('Critical Error loading initial customer data:', err);
-      // If it's a critical auth error, don't allow staying in the ghost dashboard
+      // Fail explicitly for initializeError display
+      setInitializationError("사용자 정보를 불러올 수 없습니다. 로그인을 다시 시도해주세요.");
       if (err.message?.includes('401') || err.message?.includes('404')) {
         clearSessionAndRedirect();
+        return null;
       }
       setCustomerStatus((prev) => prev || { error: 'Failed to verify session.' });
-      return null;
+      throw err;
     } finally {
       setCustomerLoading(false);
       setProfileLoading(false);
@@ -1387,12 +1723,13 @@ function Dashboard() {
   const loadWebhookStatus = async (id) => {
     try {
       setWebhookLoading(true);
+      setSectionErrors(prev => ({ ...prev, webhook: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/webhook-status`);
       if (!res.ok) throw new Error('Failed to load webhook status.');
       const data = await res.json();
       setWebhookStatus(data);
     } catch (err) {
-
+      setSectionErrors(prev => ({ ...prev, webhook: true }));
       setWebhookStatus({ error: 'Failed to load webhook status.' });
     } finally {
       setWebhookLoading(false);
@@ -1439,7 +1776,7 @@ function Dashboard() {
     if (!targetId) return;
     try {
       setConversationsLoading(true);
-      // Load conversation list with latest messages for sorting
+      setSectionErrors(prev => ({ ...prev, conversations: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/conversations?customer_id=${targetId}&include_latest_message=true&limit=25`);
       if (!res.ok) {
         throw new Error('Failed to load conversations');
@@ -1449,79 +1786,26 @@ function Dashboard() {
         setOurAccountIds(data.our_account_ids);
       }
 
-
-
-      // Time extraction function
       const getTime = (conv) => {
-        // Priority 1: latest_message.created_time
         if (conv.latest_message?.created_time) {
           try {
             const time = new Date(conv.latest_message.created_time).getTime();
-            if (!isNaN(time) && time > 0) {
-              return time;
-            }
-          } catch (e) {
-
-          }
+            if (!isNaN(time) && time > 0) return time;
+          } catch (e) { }
         }
-        // Priority 2: updated_time
         if (conv.updated_time) {
           try {
             const time = new Date(conv.updated_time).getTime();
-            if (!isNaN(time) && time > 0) {
-              return time;
-            }
-          } catch (e) {
-
-          }
+            if (!isNaN(time) && time > 0) return time;
+          } catch (e) { }
         }
-        // Default: 0 (treated as oldest)
         return 0;
       };
 
-      // Logging before sorting (first 5 only)
-
-      (data.conversations || []).slice(0, 5).forEach((conv, idx) => {
-        const time = getTime(conv);
-        const timeStr = conv.latest_message?.created_time || conv.updated_time || 'N/A';
-
-      });
-
-      // Sort - descending (newest at top)
-      const sortedConversations = [...(data.conversations || [])].sort((a, b) => {
-        const aTime = getTime(a);
-        const bTime = getTime(b);
-        const result = bTime - aTime; // Descending
-
-        // Log only first 5 comparisons
-        if ((data.conversations || []).indexOf(a) < 5 || (data.conversations || []).indexOf(b) < 5) {
-          const aTimeStr = a.latest_message?.created_time || a.updated_time || 'N/A';
-          const bTimeStr = b.latest_message?.created_time || b.updated_time || 'N/A';
-
-        }
-
-        return result;
-      });
-
-      // Logging after sorting (first 5 only)
-
-      sortedConversations.slice(0, 5).forEach((conv, idx) => {
-        const time = getTime(conv);
-        const timeStr = conv.latest_message?.created_time || conv.updated_time || 'N/A';
-
-      });
-
-      // Sort verification
-      if (sortedConversations.length > 0) {
-        const firstTime = getTime(sortedConversations[0]);
-        const lastTime = getTime(sortedConversations[sortedConversations.length - 1]);
-
-      }
-
-
+      const sortedConversations = [...(data.conversations || [])].sort((a, b) => getTime(b) - getTime(a));
       setConversations(sortedConversations);
     } catch (err) {
-
+      setSectionErrors(prev => ({ ...prev, conversations: true }));
       setConversations([]);
     } finally {
       setConversationsLoading(false);
@@ -1561,7 +1845,7 @@ function Dashboard() {
 
   const executeDeleteConversation = async () => {
     if (!conversationToDelete) return;
-    
+
     try {
       setIsDeletingConversation(true);
       const res = await fetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/conversations/${conversationToDelete}?customer_id=${customerId}`, {
@@ -1570,24 +1854,24 @@ function Dashboard() {
           'Content-Type': 'application/json'
         }
       });
-      
+
       const data = await res.json();
-      
+
       if (!res.ok || !data.success) {
         throw new Error(data.detail || data.message || '채팅방 삭제 중 오류가 발생했습니다.');
       }
-      
+
       // Remove from state
       setConversations(prev => prev.filter(c => c.id !== conversationToDelete));
-      
+
       // Clear if it was selected
       if (selectedConversation && selectedConversation.id === conversationToDelete) {
         setSelectedConversation(null);
         setConversationMessages([]);
       }
-      
+
       showNotify('채팅방이 성공적으로 삭제되었습니다.', 'success');
-      
+
     } catch (err) {
       showNotify('삭제 실패', 'error', err.message);
     } finally {
@@ -1650,12 +1934,13 @@ function Dashboard() {
   const loadPageInsights = async (id) => {
     try {
       setInsightsLoading(true);
+      setSectionErrors(prev => ({ ...prev, page_insights: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/page-insights`);
       if (!res.ok) throw new Error('Failed to load insights.');
       const data = await res.json();
       setInsights(data);
     } catch (err) {
-
+      setSectionErrors(prev => ({ ...prev, page_insights: true }));
       setInsights({ error: 'Failed to load insights.' });
     } finally {
       setInsightsLoading(false);
@@ -1665,6 +1950,7 @@ function Dashboard() {
   const loadPerformanceReport = async (id, forceRefresh = false) => {
     try {
       setPerformanceReportLoading(true);
+      setSectionErrors(prev => ({ ...prev, insights: false }));
       const url = `${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/performance-report${forceRefresh ? '?force_refresh=true' : ''}`;
       const res = await safeFetch(url);
       if (!res.ok) {
@@ -1678,15 +1964,23 @@ function Dashboard() {
           } else if (typeof errData.detail === 'string') {
             errorMsg = errData.detail;
           }
-        } catch (e) {
-          // ignore parse error, use default
-        }
+        } catch (e) { }
         setPerformanceReport({ error: errorMsg });
+        setSectionErrors(prev => ({ ...prev, insights: true }));
         return;
       }
-      const data = await res.json();
-      setPerformanceReport(data);
+      const result = await res.json();
+      if (result.success) {
+        setPerformanceReport(result.data);
+      } else {
+        setPerformanceReport({
+          error: result.message || 'AI 분석 보고서를 생성할 수 없습니다.',
+          isLimitReached: result.error === 'subscription_required'
+        });
+        setSectionErrors(prev => ({ ...prev, insights: true }));
+      }
     } catch (err) {
+      setSectionErrors(prev => ({ ...prev, insights: true }));
       setPerformanceReport({ error: '데이터 통신 중 오류가 발생했습니다.' });
     } finally {
       setPerformanceReportLoading(false);
@@ -1696,13 +1990,11 @@ function Dashboard() {
   const loadIgInsights = async (id) => {
     try {
       setIgInsightsLoading(true);
+      setSectionErrors(prev => ({ ...prev, ig_insights: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/ig-insights`);
       if (!res.ok) throw new Error('Failed to load IG information.');
       const data = await res.json();
 
-
-      // Rate Limit으로 인해 캐시된 응답(빈 미디어)이 왔을 경우 기존 데이터 유지
-      // 특히 React Strict Mode에서 useEffect가 2번 실행될 때 데이터 소실 방지
       setIgInsights(prev => {
         if (data.cached && (!data.recent_media || data.recent_media.length === 0)) {
           return {
@@ -1713,7 +2005,7 @@ function Dashboard() {
         return data;
       });
     } catch (err) {
-
+      setSectionErrors(prev => ({ ...prev, ig_insights: true }));
       setIgInsights({ error: 'Failed to load IG information.' });
     } finally {
       setIgInsightsLoading(false);
@@ -1723,13 +2015,28 @@ function Dashboard() {
   const loadRecentPostsForAnalysis = async (id) => {
     try {
       setRecentPostsLoading(true);
+      setSectionErrors(prev => ({ ...prev, comments: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/ig-media?limit=12`);
-      if (!res.ok) throw new Error('Failed to load recent posts.');
+      
+      if (!res.ok) {
+        // Fallback: If analyzer fetch fails, try to use dashboard top posts
+        if (basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {
+          setRecentPostsForAnalysis(basicSummary.top_posts);
+          return;
+        }
+        throw new Error('Failed to load recent posts.');
+      }
+      
       const data = await res.json();
       setRecentPostsForAnalysis(data.images || []);
     } catch (err) {
-
-      setRecentPostsForAnalysis([]);
+      // Final fallback to ensure customer sees something
+      if (basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {
+        setRecentPostsForAnalysis(basicSummary.top_posts);
+      } else {
+        setSectionErrors(prev => ({ ...prev, comments: true }));
+        setRecentPostsForAnalysis([]);
+      }
     } finally {
       setRecentPostsLoading(false);
     }
@@ -1739,6 +2046,10 @@ function Dashboard() {
     if (!customerId) return;
     if (isPremiumFeatureLocked) {
       showPremiumLockToast('프리미엄 요금제로 연장해야 게시물을 분석할 수 있습니다.');
+      return;
+    }
+    if (isAiPremiumLocked) {
+      showPremiumLockToast('AI 댓글 분석은 AI 요금제 전용 기능입니다.');
       return;
     }
     try {
@@ -1771,13 +2082,28 @@ function Dashboard() {
   const loadGalleryPosts = async (id) => {
     try {
       setIsGalleryLoading(true);
+      setSectionErrors(prev => ({ ...prev, aiguard: false }));
       const res = await safeFetch(`${INSTAGRAM_API_BASE_URL}/instagram/accounts/${id}/ig-media?limit=12`);
-      if (!res.ok) throw new Error('Failed to load recent posts.');
+      
+      if (!res.ok) {
+        // Fallback: If specific gallery fetch fails, try to use already loaded dashboard top posts
+        if (basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {
+          setGalleryPosts(basicSummary.top_posts);
+          return;
+        }
+        throw new Error('Failed to load recent posts.');
+      }
+      
       const data = await res.json();
       setGalleryPosts(data.images || []);
     } catch (err) {
-
-      setGalleryPosts([]);
+      // Final fallback search in basicSummary if everything else fails
+      if (basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {
+        setGalleryPosts(basicSummary.top_posts);
+      } else {
+        setSectionErrors(prev => ({ ...prev, aiguard: true }));
+        setGalleryPosts([]);
+      }
     } finally {
       setIsGalleryLoading(false);
     }
@@ -1788,7 +2114,7 @@ function Dashboard() {
     setIsModerationActionLoading(true);
     try {
       const postId = selectedPost.id;
-      
+
       if (moderationActionType === 'DELETE') {
         const res = await apiFetch(`/instagram/accounts/${customerId}/posts/${postId}/comments/bulk-delete`, {
           method: 'POST',
@@ -1800,7 +2126,7 @@ function Dashboard() {
       } else if (moderationActionType === 'HIDE' || moderationActionType === 'UNHIDE') {
         const isHide = moderationActionType === 'HIDE';
         // Hide API is individual for now in backend, we call in parallel for bulk
-        await Promise.all(idsToConfirmDelete.map(commentId => 
+        await Promise.all(idsToConfirmDelete.map(commentId =>
           apiFetch(`/instagram/accounts/${customerId}/posts/${postId}/comments/${commentId}/hide`, {
             method: 'POST',
             body: JSON.stringify({ hide: isHide }),
@@ -1818,7 +2144,7 @@ function Dashboard() {
           // For hide, we'll remove them from the 'flagged' list view to keep it clean.
           updatedComments = updatedComments.filter(c => !idsToConfirmDelete.includes(c.id));
         }
-        
+
         setPostAnalysisResult({
           ...postAnalysisResult,
           comments: updatedComments
@@ -1841,6 +2167,10 @@ function Dashboard() {
     if (!customerId) return;
     if (isPremiumFeatureLocked) {
       showPremiumLockToast('프리미엄 요금제로 연장해야 포스트를 분석할 수 있습니다.');
+      return;
+    }
+    if (isAiPremiumLocked) {
+      showPremiumLockToast('AI 댓글 분석은 AI 요금제부터 이용 가능한 프리미엄 기능입니다.');
       return;
     }
     try {
@@ -1923,9 +2253,7 @@ function Dashboard() {
 
 
   const loadIgComments = async (id) => {
-    // Legacy loadIgComments kept for backward compatibility if needed, 
-    // but we will primarily use loadRecentPostsForAnalysis now.
-    // We can also trigger loadRecentPostsForAnalysis here initially.
+    setSectionErrors(prev => ({ ...prev, comments: false }));
     loadRecentPostsForAnalysis(id);
   };
 
@@ -2008,7 +2336,7 @@ function Dashboard() {
     },
     {
       icon: Users,
-      label: '고객 관리',
+      label: '고객 관리 (AI 요금제)',
       description: '고객 정보 및 세그먼트 관리',
       view: 'contacts',
       color: 'text-pink-600',
@@ -2055,38 +2383,230 @@ function Dashboard() {
       {
         title: 'AI 자동응답',
         value: safeString(totalAiReplies.toLocaleString()),
-        change: 'Smart',
+        subtitle: totalAiReplies > 0 ? '누적 자동 처리' : '대화가 시작되면 집계됩니다',
+        unit: '건',
+        renderIcon: (
+          <div className="w-[52px] h-[52px] bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200/50 ring-1 ring-indigo-500/20">
+            <span className="text-white font-black text-xl tracking-tight leading-none">AI</span>
+          </div>
+        ),
+        noBg: true,
         icon: Sparkles,
         color: 'text-indigo-600',
+        blobColor: 'bg-indigo-400',
         bgColor: 'bg-white border border-gray-100 drop-shadow-sm'
       },
       {
         title: '인스타 팔로워',
         value: safeString(totalFollowers),
-        change: 'Live',
+        subtitle: 'Instagram 연동 데이터',
         icon: Instagram,
         imageUrl: '/assets/instagram-logo.svg',
         imageClassName: 'w-[52px] h-[52px] object-contain drop-shadow-sm',
         noBg: true,
         color: 'text-pink-600',
+        blobColor: 'bg-pink-400',
         bgColor: 'bg-pink-50 border border-pink-100'
       },
       {
         title: '종합 누적 고객',
         value: safeString(totalContacts.toLocaleString()),
-        change: 'Growth',
+        subtitle: totalContacts > 0 ? 'CRM 등록 고객' : '고객 데이터 수집 중',
+        unit: '명',
         icon: Users,
-        color: 'text-gray-700',
+        color: 'text-emerald-600',
+        blobColor: 'bg-emerald-400',
         bgColor: 'bg-white border border-gray-100'
       },
       {
         title: '24h 유입 문의',
         value: safeString(recentMessageCount.toLocaleString()),
-        change: 'Traffic',
+        subtitle: recentMessageCount > 0 ? '최근 24시간 기준' : '새로운 문의 대기 중',
+        unit: '건',
         icon: MessageCircle,
-        color: 'text-gray-700',
+        color: 'text-blue-600',
+        blobColor: 'bg-blue-400',
         bgColor: 'bg-white border border-gray-100'
       },
+    ];
+
+    const todayAutomated = basicSummary?.today_automated || 0;
+    const todayFailed = basicSummary?.today_failed || 0;
+    const last7 = Array.isArray(basicSummary?.last7_daily_automated) ? basicSummary.last7_daily_automated : [];
+    const topPosts = Array.isArray(basicSummary?.top_posts) ? basicSummary.top_posts : [];
+    const last7Total = last7.reduce((a, b) => a + (Number(b) || 0), 0);
+    const last7Avg = Math.round((last7Total / Math.max(1, last7.length || 7)) * 10) / 10;
+    const max7 = Math.max(1, ...last7.map(v => Number(v) || 0));
+
+    const basicCards = [
+      {
+        title: '오늘 자동 처리',
+        value: safeString(todayAutomated.toLocaleString()),
+        subtitle: '시나리오/키워드/AI 응답',
+        unit: '건',
+        icon: Zap,
+        color: 'text-gray-800',
+        blobColor: 'bg-gray-100',
+        bgColor: 'bg-white border border-gray-100',
+        onClick: () => {
+          const typeDistribution = [
+            { label: '시나리오 기반', count: activities.filter(a => a.event_type === 'FLOW_TRIGGER').length },
+            { label: 'AI 스마트 응답', count: activities.filter(a => ['AI_CHAT_REPLY', 'AI_COMMENT_REPLY'].includes(a.event_type)).length },
+            { label: '키워드 매칭 (기본)', count: activities.filter(a => a.event_type !== 'FLOW_TRIGGER' && !['AI_CHAT_REPLY', 'AI_COMMENT_REPLY'].includes(a.event_type)).length },
+          ].sort((a,b) => b.count - a.count);
+
+          setBasicKpiDetail({
+            type: 'today-automated',
+            title: '오늘 자동 처리 인사이트',
+            rows: typeDistribution,
+            total: todayAutomated,
+            failed: todayFailed
+          });
+          setShowBasicKpiDetailModal(true);
+        }
+      },
+      {
+        title: '활성 자동화 개수',
+        value: safeString(activeCampaignCount.toLocaleString()),
+        subtitle: activeCampaignCount > 0 ? '현재 실행 중인 자동화' : '활성화된 자동화가 없습니다',
+        unit: '개',
+        icon: Workflow,
+        color: 'text-emerald-600',
+        blobColor: 'bg-emerald-400',
+        bgColor: 'bg-white border border-gray-100',
+        onClick: () => {
+          const activeFlowItems = [
+            ...flows.filter(f => f.is_active).map(f => {
+              const source = f.trigger_source || 'all';
+              const channelLabel = source === 'comment'
+                ? '댓글'
+                : source === 'dm'
+                  ? 'DM'
+                  : source === 'story_mention'
+                    ? '스토리'
+                    : '전체';
+              const triggerLabel = source === 'story_mention'
+                ? '스토리 @태그'
+                : (f.trigger_config?.keyword || '복합 조건');
+              return {
+                id: f.id,
+                name: f.name || '이름 없는 플로우',
+                kind: '시나리오',
+                trigger: triggerLabel,
+                channel: channelLabel,
+                target: '전체',
+                source: source,
+                updatedAt: f.updated_at || f.created_at,
+                triggerCount: f.trigger_count || 0
+              };
+            }),
+            ...keywordReplies.filter(r => r.is_active).map(r => {
+              const mediaIds = [
+                ...(Array.isArray(r.media_ids) ? r.media_ids : []),
+                ...(r.media_id ? [r.media_id] : []),
+              ].filter(Boolean);
+              const targetLabel = mediaIds.length > 0 ? `${mediaIds.length}개 게시물` : '모든 게시물';
+              return {
+                id: r.id,
+                name: r.keyword ? `${r.keyword} 자동 응답` : '초간편 자동화',
+                kind: '키워드',
+                trigger: r.keyword || '키워드 미설정',
+                channel: '댓글/DM',
+                target: targetLabel,
+                source: 'keyword',
+                updatedAt: r.updated_at || r.created_at,
+                triggerCount: r.trigger_count || 0
+              };
+            }),
+          ];
+          setBasicKpiDetail({
+            type: 'active-automation',
+            title: '활성 자동화 상세 현황',
+            rows: activeFlowItems
+          });
+          setShowBasicKpiDetailModal(true);
+        }
+      },
+      {
+        title: '게시물 TOP3',
+        value: safeString(Math.min(topPosts.length || 0, 3).toString()),
+        subtitle: topPosts.length > 0 ? '최근 게시물 기준 (좋아요+댓글)' : '데이터 준비 중',
+        unit: 'TOP',
+        renderIcon: (
+          <div className="flex items-center -space-x-3">
+            {(topPosts || []).slice(0, 3).map((p, idx) => (
+              <div
+                key={p.id || idx}
+                className="w-[52px] h-[52px] rounded-2xl overflow-hidden border-2 border-white shadow-sm bg-gradient-to-br from-pink-50 to-rose-50"
+                style={{ zIndex: 10 - idx }}
+              >
+                {(p.thumbnail_url || p.media_url) ? (
+                  <img src={p.thumbnail_url || p.media_url} alt="top post" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="w-6 h-6 text-pink-300/70" />
+                  </div>
+                )}
+              </div>
+            ))}
+            {topPosts.length === 0 && (
+              <div className="w-[52px] h-[52px] rounded-2xl border border-pink-100 bg-gradient-to-br from-pink-50 to-rose-50 flex items-center justify-center shadow-inner">
+                <ImageIcon className="w-6 h-6 text-pink-400" />
+              </div>
+            )}
+          </div>
+        ),
+        noBg: true,
+        icon: ImageIcon,
+        color: 'text-pink-600',
+        blobColor: 'bg-pink-400',
+        bgColor: 'bg-white border border-gray-100',
+        onClick: () => {
+          setBasicKpiDetail({
+            type: 'top-posts',
+            title: '게시물 TOP3',
+            rows: topPosts
+          });
+          setShowBasicKpiDetailModal(true);
+        }
+      },
+      {
+        title: '최근 7일 추이',
+        value: safeString(last7Total.toLocaleString()),
+        subtitle: (() => {
+          if (last7Total === 0) return '데이터가 쌓이면 추이가 표시됩니다';
+          const todayCount = Number(last7[6]) || 0;
+          const yesterdayCount = Number(last7[5]) || 0;
+          if (todayCount > yesterdayCount && yesterdayCount > 0) {
+            const growth = Math.round(((todayCount - yesterdayCount) / yesterdayCount) * 100);
+            return `어제보다 ${growth}% 더 많이 소통했어요 🚀`;
+          } else if (todayCount > 0) {
+             return `오늘만 ${todayCount}건 즉시 처리 완료 ✨`;
+          }
+          return `일평균 ${last7Avg}건의 일을 대신하고 있어요`;
+        })(),
+        unit: '건',
+        icon: TrendingUp,
+        color: 'text-violet-600',
+        blobColor: 'bg-violet-400',
+        bgColor: 'bg-white border border-gray-100',
+        onClick: () => {
+          const trendRows = (last7.length ? last7 : Array.from({ length: 7 }).map(() => 0)).map((v, idx) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (6 - idx));
+            return {
+              dateLabel: d.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }),
+              count: Number(v) || 0
+            };
+          });
+          setBasicKpiDetail({
+            type: 'last7-trend',
+            title: '최근 7일 자동 처리 추이',
+            rows: trendRows
+          });
+          setShowBasicKpiDetailModal(true);
+        }
+      }
     ];
 
     const filteredActivities = activities.filter(a => {
@@ -2124,18 +2644,15 @@ function Dashboard() {
     return (
       <>
         {/* Header */}
-        <div className="mb-12 flex flex-col items-center justify-center text-center relative border-b border-gray-100 pb-10 w-full mx-auto">
-          <div className="w-full flex flex-col items-center justify-center text-center space-y-4">
-            <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-none text-center w-full">
+        <div className="mb-12 relative flex flex-col items-center justify-center text-center border-b border-gray-100 pb-10 w-full mx-auto gap-6">
+          <div className="flex flex-col items-center text-center space-y-2">
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-none">
               종합 대시보드
             </h1>
-            <div className="flex items-center justify-center gap-3 text-center w-full">
-              <p className="text-gray-500 font-bold text-sm text-center">실시간 현황 & AI 요약</p>
-            </div>
+            <p className="text-gray-400 font-bold text-sm">실시간 현황 & AI 요약</p>
           </div>
 
-
-          <div className="absolute right-0 bottom-10 flex items-center gap-4 bg-gray-50/50 p-1.5 rounded-2xl border border-gray-100">
+          <div className="md:absolute md:right-0 md:top-1/2 md:-translate-y-1/2 flex items-center gap-4 bg-gray-50/50 p-1.5 rounded-2xl border border-gray-100 shrink-0">
             <div className="text-right px-3 hidden md:block">
               <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Last Synced</div>
               <div className="text-xs font-black text-gray-900">{new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</div>
@@ -2149,6 +2666,7 @@ function Dashboard() {
                 }
                 const cid = localStorage.getItem('customer_id');
                 if (cid) {
+                  showNotify('전체 데이터를 동기화합니다...', 'info');
                   loadDashboardStats(cid);
                   loadAiInsights(cid);
                   loadAutomationStats(cid);
@@ -2164,6 +2682,44 @@ function Dashboard() {
               <RefreshCw className={`w-4 h-4 transition-transform group-hover:rotate-180 duration-500 ${igInsightsLoading ? 'animate-spin' : ''}`} />
               <span className="text-sm">데이터 동기화</span>
             </Button>
+          </div>
+        </div>
+
+        {/* Basic KPI Summary (Main) */}
+        <div className="mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {basicCards.map((stat, index) => (
+              <div
+                key={index}
+                className={`group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden ${basicSummaryLoading ? 'animate-pulse' : ''} ${stat.onClick ? 'cursor-pointer' : ''}`}
+                onClick={stat.onClick}
+              >
+                <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full opacity-10 blur-2xl group-hover:opacity-20 transition-opacity ${stat.blobColor || 'bg-indigo-400'}`}></div>
+
+                <div className="flex items-start justify-between mb-5 relative z-10">
+                  <div className={`${stat.noBg ? '' : `p-3.5 rounded-2xl ${stat.bgColor}`} group-hover:scale-110 transition-transform duration-300 flex justify-center items-center`}>
+                    {stat.renderIcon ? (
+                      stat.renderIcon
+                    ) : stat.imageUrl ? (
+                      <img src={stat.imageUrl} alt={stat.title} className={stat.imageClassName || "w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-sm"} />
+                    ) : (
+                      <stat.icon className={`w-6 h-6 ${stat.color}`} />
+                    )}
+                  </div>
+                  <p className="text-right text-sm font-bold text-gray-400 tracking-wide uppercase text-[11px] pt-1">{stat.title}</p>
+                </div>
+
+                <div className="relative z-10">
+                  <div className="flex items-baseline gap-1.5">
+                    <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{basicSummaryLoading ? '...' : stat.value}</h3>
+                    {stat.unit && <span className="text-sm font-bold text-gray-400">{stat.unit}</span>}
+                  </div>
+                  {stat.subtitle && (
+                    <p className="text-[11px] font-semibold text-gray-400 mt-2 tracking-wide min-h-[32px] leading-relaxed">{basicSummaryLoading ? '집계 데이터를 불러오는 중입니다' : stat.subtitle}</p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -2208,36 +2764,50 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Stats Cards */}
         {/* Stats Cards (Bento Grid Style) */}
         {dashboardViewFilter === 'TOTAL' && !dashboardSearchTerm && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            {statsCards.map((stat, index) => (
-              <div
-                key={index}
-                className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden"
-              >
-                {/* Subtle Gradient Background Blob */}
-                <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full opacity-10 blur-2xl group-hover:opacity-20 transition-opacity ${stat.changeType === 'positive' ? 'bg-emerald-400' : 'bg-indigo-400'}`}></div>
+          <div className="mb-10">
+            {sectionErrors.stats ? (
+              renderDataError("통계", () => {
+                const cid = localStorage.getItem('customer_id');
+                if (cid) loadDashboardStats(cid);
+              })
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {statsCards.map((stat, index) => (
+                  <div
+                    key={index}
+                    className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+                  >
+                    {/* Subtle Gradient Background Blob */}
+                    <div className={`absolute -right-6 -top-6 w-24 h-24 rounded-full opacity-10 blur-2xl group-hover:opacity-20 transition-opacity ${stat.blobColor || 'bg-indigo-400'}`}></div>
 
-                <div className="flex items-start justify-between mb-6 relative z-10">
-                  <div className={`${stat.noBg ? '' : `p-3.5 rounded-2xl ${stat.bgColor}`} group-hover:scale-110 transition-transform duration-300 flex justify-center items-center`}>
-                    {stat.imageUrl ? (
-                      <img src={stat.imageUrl} alt={stat.title} className={stat.imageClassName || "w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-sm"} />
-                    ) : (
-                      <stat.icon className={`w-6 h-6 ${stat.color}`} />
-                    )}
-                  </div>
-                  <p className="text-right text-sm font-bold text-gray-400 tracking-wide uppercase text-[11px] pt-1">{stat.title}</p>
-                </div>
+                    <div className="flex items-start justify-between mb-5 relative z-10">
+                      <div className={`${stat.noBg ? '' : `p-3.5 rounded-2xl ${stat.bgColor}`} group-hover:scale-110 transition-transform duration-300 flex justify-center items-center`}>
+                        {stat.renderIcon ? (
+                          stat.renderIcon
+                        ) : stat.imageUrl ? (
+                          <img src={stat.imageUrl} alt={stat.title} className={stat.imageClassName || "w-6 h-6 rounded-full object-cover ring-2 ring-white shadow-sm"} />
+                        ) : (
+                          <stat.icon className={`w-6 h-6 ${stat.color}`} />
+                        )}
+                      </div>
+                      <p className="text-right text-sm font-bold text-gray-400 tracking-wide uppercase text-[11px] pt-1">{stat.title}</p>
+                    </div>
 
-                <div className="relative z-10">
-                  <div className="flex items-baseline gap-1">
-                    <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{stat.value}</h3>
+                    <div className="relative z-10">
+                      <div className="flex items-baseline gap-1.5">
+                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{stat.value}</h3>
+                        {stat.unit && <span className="text-sm font-bold text-gray-300">{stat.unit}</span>}
+                      </div>
+                      {stat.subtitle && (
+                        <p className="text-[11px] font-semibold text-gray-400 mt-2 tracking-wide">{stat.subtitle}</p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 
@@ -2312,75 +2882,82 @@ function Dashboard() {
 
               {/* Timeline Stream Style */}
               <div className="relative">
-                {/* Scrollable Container */}
-                <div className="p-0 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                  {activitiesLoading ? (
-                    <div className="py-12 flex flex-col items-center justify-center text-gray-400">
-                      <Loader2 className="w-8 h-8 mb-2 animate-spin text-indigo-500" />
-                      <p className="text-sm">활동 내역을 불러오는 중...</p>
-                    </div>
-                  ) : filteredActivities.length > 0 ? (
-                    <div className="relative">
-                      {/* Timeline connector line */}
-                      <div className="absolute left-[2.25rem] top-8 bottom-8 w-px bg-gradient-to-b from-gray-200 via-gray-100 to-transparent"></div>
+                {sectionErrors.activities ? (
+                  renderDataError("활동", () => {
+                    const cid = localStorage.getItem('customer_id');
+                    if (cid) loadActivities(cid);
+                  })
+                ) : (
+                  /* Scrollable Container */
+                  <div className="p-0 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {activitiesLoading ? (
+                      <div className="py-12 flex flex-col items-center justify-center text-gray-400">
+                        <Loader2 className="w-8 h-8 mb-2 animate-spin text-indigo-500" />
+                        <p className="text-sm">활동 내역을 불러오는 중...</p>
+                      </div>
+                    ) : filteredActivities.length > 0 ? (
+                      <div className="relative">
+                        {/* Timeline connector line */}
+                        <div className="absolute left-[2.25rem] top-8 bottom-8 w-px bg-gradient-to-b from-gray-200 via-gray-100 to-transparent"></div>
 
-                      <div className="space-y-0">
-                        {filteredActivities
-                          .map((activity) => (
-                            <div key={activity.id} className="relative p-6 hover:bg-gray-50/50 transition-colors flex items-start gap-6 group">
-                              {/* Timeline Dot & Icon */}
-                              <div className={`
-                                relative z-10 shrink-0 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border-2 border-white ring-1 ring-gray-100
-                                ${activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY' ? 'bg-indigo-50 text-indigo-600' :
-                                  activity.event_type === 'FLOW_TRIGGER' ? 'bg-emerald-50 text-emerald-600' :
-                                    'bg-blue-50 text-blue-600'}
-                              `}>
-                                {activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY' ? <Sparkles className="w-5 h-5" /> :
-                                  activity.event_type === 'FLOW_TRIGGER' ? <Zap className="w-5 h-5" /> :
-                                    <MessageSquareText className="w-5 h-5" />}
-                              </div>
+                        <div className="space-y-0">
+                          {filteredActivities
+                            .map((activity) => (
+                              <div key={activity.id} className="relative p-6 hover:bg-gray-50/50 transition-colors flex items-start gap-6 group">
+                                {/* Timeline Dot & Icon */}
+                                <div className={`
+                                  relative z-10 shrink-0 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border-2 border-white ring-1 ring-gray-100
+                                  ${activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY' ? 'bg-indigo-50 text-indigo-600' :
+                                    activity.event_type === 'FLOW_TRIGGER' ? 'bg-emerald-50 text-emerald-600' :
+                                      'bg-blue-50 text-blue-600'}
+                                `}>
+                                  {activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY' ? <Sparkles className="w-5 h-5" /> :
+                                    activity.event_type === 'FLOW_TRIGGER' ? <Zap className="w-5 h-5" /> :
+                                      <MessageSquareText className="w-5 h-5" />}
+                                </div>
 
-                              <div className="flex-1 min-w-0 pt-1">
-                                <div className="flex justify-between items-start mb-1.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-sm text-gray-900">@{activity.contact_username || '고객'}</span>
-                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border-0 tracking-tight ${(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'bg-indigo-600 text-white' :
-                                      activity.event_type === 'FLOW_TRIGGER' ? 'bg-emerald-500 text-white' :
-                                        'bg-blue-500 text-white'
-                                      }`}>
-                                      {(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'AI RESPONSE' :
-                                        activity.event_type === 'FLOW_TRIGGER' ? 'SCENARIO' :
-                                          'KEYWORD REPLY'}
-                                    </span>
+                                <div className="flex-1 min-w-0 pt-1">
+                                  <div className="flex justify-between items-start mb-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-sm text-gray-900">@{activity.contact_username || '고객'}</span>
+                                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border-0 tracking-tight ${(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'bg-indigo-600 text-white' :
+                                        activity.event_type === 'FLOW_TRIGGER' ? 'bg-emerald-500 text-white' :
+                                          'bg-blue-500 text-white'
+                                        }`}>
+                                        {(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'AI RESPONSE' :
+                                          activity.event_type === 'FLOW_TRIGGER' ? 'SCENARIO' :
+                                            'KEYWORD REPLY'}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 font-medium tabular-nums">{new Date(activity.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                   </div>
-                                  <span className="text-[10px] text-gray-400 font-medium tabular-nums">{new Date(activity.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                </div>
 
-                                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                                  <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                                    수신: <span className="text-gray-700 font-medium truncate">{safeString(activity.trigger_text) || '(내용 없음)'}</span>
-                                  </p>
-                                  <p className="text-sm font-bold text-indigo-600 flex items-start gap-1">
-                                    <span className="mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-                                    <span>{safeString(activity.action_text)}</span>
-                                  </p>
+                                  <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                    <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                                      수신: <span className="text-gray-700 font-medium truncate">{safeString(activity.trigger_text) || '(내용 없음)'}</span>
+                                    </p>
+                                    <p className="text-sm font-bold text-indigo-600 flex items-start gap-1">
+                                      <span className="mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                                      <span>{safeString(activity.action_text)}</span>
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            ))}
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="py-12 text-center bg-gray-50/30">
-                      <div className="flex flex-col items-center justify-center text-gray-400">
-                        <Clock className="w-8 h-8 mb-2 text-gray-200" />
-                        <p className="text-sm">{dashboardSearchTerm ? '검색 결과가 없습니다.' : '아직 기록된 자동화 활동이 없습니다.'}</p>
-                        <p className="text-xs mt-1">{dashboardSearchTerm ? '계정명을 다시 확인해 주세요.' : '인스타그램 대화가 발생하면 이곳에 타임라인으로 표시됩니다.'}</p>
+                    ) : (
+                      <div className="py-12 text-center bg-gray-50/30">
+                        <div className="flex flex-col items-center justify-center text-gray-400">
+                          <Clock className="w-8 h-8 mb-2 text-gray-200" />
+                          <p className="text-sm">{dashboardSearchTerm ? '검색 결과가 없습니다.' : '아직 기록된 자동화 활동이 없습니다.'}</p>
+                          <p className="text-xs mt-1">{dashboardSearchTerm ? '계정명을 다시 확인해 주세요.' : '인스타그램 대화가 발생하면 이곳에 타임라인으로 표시됩니다.'}</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2388,20 +2965,36 @@ function Dashboard() {
           {/* 3. Missed Business Opportunities (AI) */}
           {(dashboardViewFilter === 'TOTAL' || dashboardViewFilter === 'OPPORTUNITY') && (
             <div className="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm relative overflow-hidden mb-8">
+              {isAiPremiumLocked && (
+                <div className="absolute inset-0 z-20 backdrop-blur-md bg-white/40 flex flex-col items-center justify-center rounded-[2.5rem] transition-all">
+                  <div className="bg-white/90 p-6 rounded-[2.5rem] shadow-2xl border border-indigo-50/50 flex flex-col items-center max-w-sm text-center mx-4 group hover:scale-[1.02] transition-transform">
+                    <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mb-4 shadow-xl shadow-indigo-200 animate-gentle-bounce">
+                      <Lock className="w-8 h-8 text-white" />
+                    </div>
+                    <h3 className="text-xl font-black text-gray-900 mb-2">놓친 비즈니스 기회 발굴</h3>
+                    <p className="text-sm font-bold text-gray-500 mb-6">AI가 대화의 문맥을 분석하여 구매 전환 가능성이 높은 고객을 찾아냅니다.</p>
+                    <Button onClick={() => setCurrentView('subscription')} className="w-full bg-gray-900 text-white rounded-2xl h-12 font-black text-sm shadow-xl shadow-gray-200 hover:bg-black active:scale-95 transition-all">
+                      프리미엄 요금제 알아보기
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-50/20 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
 
               <div className="relative z-10 flex items-center justify-between mb-8">
                 <div className="flex items-center gap-2">
-                  <div className="bg-gray-900 rounded-lg p-1.5">
+                  <div className="bg-gray-900 rounded-lg p-1.5 border border-indigo-500/20">
                     <Lightbulb className="w-4 h-4 text-white" />
                   </div>
-                  <h2 className="text-lg font-bold text-gray-900 tracking-tight">놓친 비즈니스 기회 ({filteredOpportunities.length})</h2>
+                  <h2 className="text-lg font-bold flex items-center gap-2 text-gray-900 tracking-tight">
+                    <span className="bg-gradient-to-r from-indigo-600 to-purple-600 text-transparent bg-clip-text">AI 기반</span> 놓친 비즈니스 기회 ({filteredOpportunities.length})
+                  </h2>
                 </div>
                 <Button
                   variant="white"
                   size="sm"
                   onClick={() => { loadAiInsights(customerId); loadAutomationStats(customerId); }}
-                  disabled={aiInsightsLoading}
+                  disabled={aiInsightsLoading || isAiPremiumLocked}
                   className="rounded-xl bg-white border border-gray-200 text-gray-900 font-bold h-9 px-4 hover:bg-gray-900 hover:text-white hover:border-gray-900 transition-all shadow-sm flex items-center gap-2 group"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${aiInsightsLoading ? 'animate-spin' : 'group-hover:rotate-180'} transition-transform duration-500`} />
@@ -2411,7 +3004,12 @@ function Dashboard() {
 
               {/* Smart Notification List Style */}
               <div className="relative min-h-[200px]">
-                {aiInsightsLoading ? (
+                {sectionErrors.insights ? (
+                  renderDataError("비즈니스 기회", () => {
+                    const cid = localStorage.getItem('customer_id');
+                    if (cid) loadAiInsights(cid);
+                  })
+                ) : aiInsightsLoading ? (
                   <div className="py-20 flex flex-col items-center justify-center">
                     <div className="relative w-16 h-16 mb-4">
                       <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
@@ -2475,13 +3073,13 @@ function Dashboard() {
                         <p className="text-gray-600 max-w-xs mx-auto leading-relaxed text-sm whitespace-pre-wrap">{aiInsights?.error}</p>
                       </div>
                     ) : (
-                      <div className="py-24 text-center">
-                        <div className="inline-flex items-center justify-center w-20 h-20 rounded-[2rem] bg-gradient-to-br from-emerald-100 to-teal-50 mb-6 shadow-inner ring-4 ring-white">
-                          <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                      <div className="py-16 text-center">
+                        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-50 mb-4 shadow-inner ring-4 ring-white">
+                          <CheckCircle2 className="w-7 h-7 text-emerald-600" />
                         </div>
-                        <h3 className="text-xl font-black text-gray-900 mb-2">{dashboardSearchTerm ? '검색 결과가 없습니다' : '모든 기회를 잡았습니다!'}</h3>
-                        <p className="text-gray-500 max-w-xs mx-auto leading-relaxed font-medium">
-                          {dashboardSearchTerm ? '계정명을 다시 확인해 주세요.' : '현재 놓치고 있는 중요한 대화가 없습니다.\n새로운 알림이 오면 이곳에 스마트 카드로 표시됩니다.'}
+                        <h3 className="text-lg font-black text-gray-900 mb-1.5">{dashboardSearchTerm ? '검색 결과가 없습니다' : '모든 기회를 잡았습니다!'}</h3>
+                        <p className="text-gray-400 max-w-xs mx-auto leading-relaxed font-medium text-sm">
+                          {dashboardSearchTerm ? '계정명을 다시 확인해 주세요.' : '놓치고 있는 중요한 대화가 없습니다.'}
                         </p>
                       </div>
                     )}
@@ -2525,190 +3123,245 @@ function Dashboard() {
 
     return (
       <>
-        <div className="mb-12 relative w-full flex flex-col items-center justify-center text-center">
-          <div className="max-w-2xl">
-            <h1 className="text-4xl font-black text-gray-900 tracking-tight mb-3">
+        <div className="mb-10 w-full relative flex flex-col items-center justify-center text-center border-b border-gray-100 pb-10 gap-6">
+          <div className="flex flex-col items-center text-center space-y-2">
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-none">
               서비스 인사이트
             </h1>
-            <p className="text-sm text-gray-500 font-medium whitespace-pre-wrap">계정의 주요 성과와 성장 지표를 확인합니다.</p>
+            <p className="text-gray-400 font-bold text-sm">계정의 주요 성과와 성장 지표를 확인합니다</p>
           </div>
-          <div className="mt-6 md:absolute md:right-0 md:top-1/2 md:-translate-y-1/2">
+          <div className="md:absolute md:right-0 md:top-1/2 md:-translate-y-1/2 flex items-center justify-center">
             <Button
               variant="outline"
-              size="sm"
-              className="h-9 border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50 font-medium"
+              className="rounded-xl bg-white border border-gray-200 text-gray-900 font-bold h-11 px-5 hover:bg-gray-900 hover:text-white hover:border-gray-900 transition-all shadow-sm flex items-center gap-2 group"
               onClick={async () => {
                 if (isPremiumFeatureLocked) {
                   showPremiumLockToast('프리미엄 요금제로 연장해야 지표를 새로고침할 수 있습니다.');
                   return;
                 }
-                await loadIgInsights(customerId);
-                loadPerformanceReport(customerId, true); // Force refresh AI report
                 showNotify('지표를 새로고침합니다...', 'info');
+                await loadIgInsights(customerId);
+                loadPerformanceReport(customerId, true);
               }}
             >
-              <Loader2 className={`w-3.5 h-3.5 mr-2 ${igInsightsLoading || performanceReportLoading ? 'animate-spin' : ''}`} />
-              지표 새로고침
+              <RefreshCw className={`w-4 h-4 transition-transform group-hover:rotate-180 duration-500 ${igInsightsLoading || performanceReportLoading ? 'animate-spin' : ''}`} />
+              <span className="text-sm">지표 새로고침</span>
             </Button>
           </div>
         </div>
 
-        {/* Automation Performance Hero (New) */}
-        {!automationStatsLoading && automationStats && (automationStats.total_activities > 0) && (
-          <div className="mb-8">
-            <Card className="rounded-[2rem] border border-indigo-50 shadow-lg bg-gradient-to-br from-white via-white to-indigo-50/50 overflow-hidden relative">
-              <div className="absolute top-0 right-0 p-8 opacity-10">
-                <Bot className="w-48 h-48 text-indigo-600 font-bold" />
-              </div>
-              <CardContent className="p-8 relative z-10">
-                <div className="flex flex-col md:flex-row gap-8 items-center">
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-xl font-bold text-indigo-900 flex items-center justify-center md:justify-start gap-2 mb-2">
-                      <Clock className="w-6 h-6 text-indigo-600" />
-                      AI가 고객님을 위해 절약한 시간
-                    </h3>
-                    <div className="text-5xl font-black text-indigo-600 tracking-tighter my-4">
-                      {Math.floor((automationStats.time_saved_minutes || 0) / 60) > 0 ? `${Math.floor((automationStats.time_saved_minutes || 0) / 60)}시간 ` : ''}
-                      {Math.floor((automationStats.time_saved_minutes || 0) % 60)}분
-                    </div>
-                    <p className="text-indigo-800 font-medium whitespace-pre-wrap">
-                      최근 30일 동안 총 <span className="font-bold text-indigo-900 border-b-2 border-indigo-300">{automationStats.total_activities}건</span>의 고객 문의를 자동으로 처리했습니다.
-                    </p>
+        {/* Automation Performance Hero (New) - Only show if loading or has data */}
+        {(automationStatsLoading || (automationStats && automationStats.total_activities > 0)) && (
+          <div className="mb-8 min-h-[320px]">
+            {!automationStatsLoading ? (
+              sectionErrors.automation ? (
+                renderDataError("자동화 성과", () => {
+                  const cid = localStorage.getItem('customer_id');
+                  if (cid) loadAutomationStats(cid);
+                })
+              ) : (
+                <Card className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden relative">
+                  <div className="absolute top-0 right-0 p-8 opacity-10">
+                    <Bot className="w-48 h-48 text-indigo-600 font-bold" />
                   </div>
-
-                  <div className="flex-1 w-full bg-white/60 backdrop-blur-md p-6 rounded-2xl border border-indigo-100 shadow-sm flex flex-col gap-4">
-                    <h4 className="text-sm font-bold text-indigo-800 uppercase tracking-wider mb-2">주요 활성 채널</h4>
-                    {(automationStats.event_distribution || []).slice(0, 3).map((item, idx) => (
-                      <div key={idx}>
-                        <div className="flex justify-between text-xs font-bold mb-1">
-                          <span className="text-gray-700">
-                            {item.type === 'AI_CHAT_REPLY' ? 'AI 자동 상담' :
-                              (item.type === 'STORY_REPLY' || item.type === 'MENTION_REPLY') ? '스토리 멘션 응대' :
-                                item.type === 'COMMENT_REPLY' ? '댓글 자동 DM' :
-                                  item.type === 'DM_REPLY' ? 'DM 기본형 응대' :
-                                    item.type === 'KEYWORD_REPLY' ? '키워드 자동답장' :
-                                      item.type === 'FLOW_TRIGGER' ? '시나리오 챗봇' : item.type}
-                          </span>
-                          <span className="text-indigo-700">{item.count}건</span>
+                  <CardContent className="p-8 relative z-10">
+                    <div className="flex flex-col md:flex-row gap-8 items-center">
+                      <div className="flex-1 text-center md:text-left">
+                        <h3 className="text-xl font-bold text-indigo-900 flex items-center justify-center md:justify-start gap-2 mb-2">
+                          <Clock className="w-6 h-6 text-indigo-600" />
+                          AI가 고객님을 위해 절약한 시간
+                        </h3>
+                        <div className="text-5xl font-black text-indigo-600 tracking-tighter my-4">
+                          {Math.floor((automationStats.time_saved_minutes || 0) / 60) > 0 ? `${Math.floor((automationStats.time_saved_minutes || 0) / 60)}시간 ` : ''}
+                          {Math.floor((automationStats.time_saved_minutes || 0) % 60)}분
                         </div>
-                        <div className="w-full bg-indigo-100/50 rounded-full h-2">
-                          <div className="bg-indigo-500 h-2 rounded-full transition-all duration-1000" style={{ width: `${Math.min((item.count / automationStats.total_activities) * 100, 100)}%` }}></div>
-                        </div>
+                        <p className="text-indigo-800 font-medium whitespace-pre-wrap">
+                          최근 30일 동안 총 <span className="font-bold text-indigo-900 border-b-2 border-indigo-300">{automationStats.total_activities}건</span>의 고객 문의를 자동으로 처리했습니다.
+                        </p>
                       </div>
-                    ))}
-                  </div>
 
-                  {(automationStats.intent_distribution || []).length > 0 && (
-                    <div className="flex-1 w-full bg-white/60 backdrop-blur-md p-6 rounded-2xl border border-indigo-100 shadow-sm">
-                      <h4 className="text-sm font-bold text-indigo-800 uppercase tracking-wider mb-4">고객 관심사 분석 (Top 3)</h4>
-                      <div className="flex flex-col gap-3">
-                        {(automationStats.intent_distribution || []).slice(0, 3).map((intent, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-100 text-amber-600' : idx === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-600'}`}>
-                              {idx + 1}
+                      <div className="flex-1 w-full bg-white/60 backdrop-blur-md p-6 rounded-2xl border border-indigo-100 shadow-sm flex flex-col gap-4">
+                        <h4 className="text-sm font-bold text-indigo-800 uppercase tracking-wider mb-2">주요 활성 채널</h4>
+                        {(automationStats.event_distribution || []).slice(0, 3).map((item, idx) => (
+                          <div key={idx}>
+                            <div className="flex justify-between text-xs font-bold mb-1">
+                              <span className="text-gray-700">
+                                {item.type === 'AI_CHAT_REPLY' ? 'AI 자동 상담' :
+                                  (item.type === 'STORY_REPLY' || item.type === 'MENTION_REPLY') ? '스토리 멘션 응대' :
+                                    item.type === 'COMMENT_REPLY' ? '댓글 자동 DM' :
+                                      item.type === 'DM_REPLY' ? 'DM 기본형 응대' :
+                                        item.type === 'KEYWORD_REPLY' ? '키워드 자동답장' :
+                                          item.type === 'FLOW_TRIGGER' ? '시나리오 챗봇' : item.type}
+                              </span>
+                              <span className="text-indigo-700">{item.count}건</span>
                             </div>
-                            <span className="text-sm font-medium text-gray-800 truncate flex-1">{intent.intent}</span>
-                            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-full">{intent.count}건</span>
+                            <div className="w-full bg-indigo-100/50 rounded-full h-2">
+                              <div className="bg-indigo-500 h-2 rounded-full transition-all duration-1000" style={{ width: `${Math.min((item.count / automationStats.total_activities) * 100, 100)}%` }}></div>
+                            </div>
                           </div>
                         ))}
                       </div>
+
+                      {(automationStats.intent_distribution || []).length > 0 && (
+                        <div className="flex-1 w-full bg-white/60 backdrop-blur-md p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                          <h4 className="text-sm font-bold text-indigo-800 uppercase tracking-wider mb-4">고객 관심사 분석 (Top 3)</h4>
+                          <div className="flex flex-col gap-3">
+                            {(automationStats.intent_distribution || []).slice(0, 3).map((intent, idx) => (
+                              <div key={idx} className="flex items-center gap-3">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-100 text-amber-600' : idx === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-600'}`}>
+                                  {idx + 1}
+                                </div>
+                                <span className="text-sm font-medium text-gray-800 truncate flex-1">{intent.intent}</span>
+                                <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-full">{intent.count}건</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </CardContent>
+                </Card>
+              )
+            ) : (
+              <div className="bg-gray-50/50 rounded-[2.5rem] border border-gray-100 h-[320px] flex flex-col items-center justify-center text-center p-8">
+                <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                  <Bot className="w-6 h-6 text-indigo-300" />
                 </div>
-              </CardContent>
-            </Card>
+                <p className="text-gray-400 font-medium">자동화 성과를 불러오는 중...</p>
+              </div>
+            )}
           </div>
         )}
 
         {/* 1. Key Metrics Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Total Followers */}
-          <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
-            <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-emerald-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
-            <div className="flex items-start justify-between mb-6 relative z-10">
-              <div className="group-hover:scale-110 transition-transform duration-300 flex justify-center items-center">
-                <img src="/assets/instagram-logo.svg" alt="Instagram" className="w-[52px] h-[52px] object-contain drop-shadow-sm" />
-              </div>
-              <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">총 팔로워</p>
+          {sectionErrors.ig_insights ? (
+            <div className="md:col-span-3">
+              {renderDataError("인사이트 지표", () => {
+                const cid = localStorage.getItem('customer_id');
+                if (cid) loadIgInsights(cid);
+              })}
             </div>
-            <div className="relative z-10">
-              <div className="flex items-baseline gap-2">
-                <h3 className="text-4xl font-black text-gray-900 tracking-tighter">
-                  {safeString((customerStatus?.instagram_account?.follows_count ?? igInsights?.follows_count)?.toLocaleString()) || '-'}
-                </h3>
-                <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                  Live
-                </span>
+          ) : (
+            <>
+              {/* Total Followers */}
+              <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+                <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-pink-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
+                <div className="flex items-start justify-between mb-5 relative z-10">
+                  <div className="group-hover:scale-110 transition-transform duration-300 flex justify-center items-center">
+                    <img src="/assets/instagram-logo.svg" alt="Instagram" className="w-[52px] h-[52px] object-contain drop-shadow-sm" />
+                  </div>
+                  <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">총 팔로워</p>
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-baseline gap-1.5">
+                    <h3 className="text-4xl font-black text-gray-900 tracking-tighter">
+                      {safeString((customerStatus?.instagram_account?.followers_count ?? igInsights?.followers_count)?.toLocaleString()) || '-'}
+                    </h3>
+                    <span className="text-sm font-bold text-gray-300">명</span>
+                  </div>
+                  <p className="text-[11px] font-semibold text-gray-400 mt-2 tracking-wide">Instagram 연동 데이터</p>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Avg Engagement */}
-          <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
-            <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-rose-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
-            <div className="flex items-start justify-between mb-6 relative z-10">
-              <div className="p-3.5 rounded-2xl bg-white border border-gray-100 drop-shadow-sm group-hover:scale-110 transition-transform duration-300">
-                <Heart className="w-6 h-6 text-rose-600" />
+              {/* Avg Engagement */}
+              <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+                <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-rose-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
+                <div className="flex items-start justify-between mb-5 relative z-10">
+                  <div className="p-3.5 rounded-2xl bg-white border border-gray-100 drop-shadow-sm group-hover:scale-110 transition-transform duration-300">
+                    <Heart className="w-6 h-6 text-rose-600" />
+                  </div>
+                  <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">평균 참여도</p>
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-baseline gap-1.5 mb-2">
+                    <h3 className="text-4xl font-black text-gray-900 tracking-tighter">
+                      {avgEngagement.toLocaleString()}
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-gray-500 font-bold">
+                    <span className="flex items-center gap-1.5" title="Average Likes">
+                      <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-50" />
+                      <span>좋아요 {Math.round(totalLikes / (recentPosts.length || 1))}</span>
+                    </span>
+                    <span className="w-px h-3 bg-gray-200"></span>
+                    <span className="flex items-center gap-1.5" title="Average Comments">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-500 fill-blue-50" />
+                      <span>댓글 {Math.round(totalComments / (recentPosts.length || 1))}</span>
+                    </span>
+                  </div>
+                </div>
               </div>
-              <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">평균 참여도</p>
-            </div>
-            <div className="relative z-10">
-              <div className="flex items-baseline gap-1 mb-3">
-                <h3 className="text-4xl font-black text-gray-900 tracking-tighter">
-                  {avgEngagement.toLocaleString()}
-                </h3>
-              </div>
-              <div className="flex items-center gap-4 text-xs text-gray-500 font-bold">
-                <span className="flex items-center gap-1.5" title="Average Likes">
-                  <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-50" />
-                  <span>좋아요 {Math.round(totalLikes / (recentPosts.length || 1))}</span>
-                </span>
-                <span className="w-px h-3 bg-gray-200"></span>
-                <span className="flex items-center gap-1.5" title="Average Comments">
-                  <MessageSquare className="w-3.5 h-3.5 text-blue-500 fill-blue-50" />
-                  <span>댓글 {Math.round(totalComments / (recentPosts.length || 1))}</span>
-                </span>
-              </div>
-            </div>
-          </div>
 
-          {/* Total Media */}
-          <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
-            <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-indigo-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
-            <div className="flex items-start justify-between mb-6 relative z-10">
-              <div className="p-3.5 rounded-2xl bg-white border border-gray-100 drop-shadow-sm group-hover:scale-110 transition-transform duration-300">
-                <ImageIcon className="w-6 h-6 text-indigo-600" />
+              {/* Total Media */}
+              <div className="group relative bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden">
+                <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-indigo-400 opacity-10 blur-2xl group-hover:opacity-20 transition-opacity"></div>
+                <div className="flex items-start justify-between mb-5 relative z-10">
+                  <div className="p-3.5 rounded-2xl bg-white border border-gray-100 drop-shadow-sm group-hover:scale-110 transition-transform duration-300">
+                    <ImageIcon className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">총 미디어</p>
+                </div>
+                <div className="relative z-10">
+                  <div className="flex items-baseline gap-1.5">
+                    <h3 className="text-4xl font-black text-gray-900 tracking-tighter">
+                      {safeString((customerStatus?.instagram_account?.media_count ?? igInsights?.media_count)?.toLocaleString()) || '-'}
+                    </h3>
+                    <span className="text-sm font-bold text-gray-300">개</span>
+                  </div>
+                  <p className="text-[11px] font-semibold text-gray-400 mt-2 tracking-wide">
+                    최근 게시물 {recentPosts.length}개 기준 분석
+                  </p>
+                </div>
               </div>
-              <p className="text-right text-[11px] font-bold text-gray-400 tracking-wide uppercase pt-1">총 미디어</p>
-            </div>
-            <div className="relative z-10">
-              <h3 className="text-4xl font-black text-gray-900 tracking-tighter mb-1">
-                {safeString((customerStatus?.instagram_account?.media_count ?? igInsights?.media_count)?.toLocaleString()) || '-'}
-              </h3>
-              <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">
-                최근 게시물 {recentPosts.length}개 기준
-              </p>
-            </div>
-          </div>
+            </>
+          )}
         </div>
         {/* 2. AI Strategy Report Section */}
-        <div className="mb-8">
-          <Card className="border-none shadow-xl bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-hidden relative">
-
+        <div className="mb-8 overflow-hidden rounded-[2.5rem]">
+          <Card className="bg-gradient-to-br from-white via-indigo-50/10 to-white rounded-[2.5rem] border border-indigo-100 shadow-sm overflow-hidden relative min-h-[400px] flex flex-col transition-all duration-500">
+            {/* Multi-colored harmony blobs to match top cards */}
+            <div className="absolute -left-20 -top-20 w-64 h-64 rounded-full bg-emerald-400 opacity-[0.05] blur-3xl pointer-events-none"></div>
+            <div className="absolute right-0 top-0 w-64 h-64 rounded-full bg-rose-400 opacity-[0.05] blur-3xl pointer-events-none"></div>
+            <div className="absolute left-1/2 -bottom-20 w-64 h-64 rounded-full bg-indigo-400 opacity-[0.05] blur-3xl pointer-events-none -translate-x-1/2"></div>
+            {isAiPremiumLocked && (
+              <div className="absolute inset-0 z-20 backdrop-blur-3xl bg-white/60 flex flex-col items-center justify-center rounded-[2.5rem]">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl border border-indigo-100 flex flex-col items-center text-center max-w-md mx-4 group hover:scale-[1.02] transition-transform">
+                  <div className="relative w-20 h-20 mb-6 flex justify-center items-center animate-gentle-bounce">
+                    <div className="relative w-16 h-16 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-full flex items-center justify-center shadow-inner ring-4 ring-indigo-50">
+                      <Lock className="w-8 h-8 text-indigo-50" />
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">AI 댓글 분석 요약 (AI 요금제)</h3>
+                  <p className="text-sm font-bold text-gray-500 mb-8 leading-relaxed">경쟁 계정 분석부터 시의적절한 업로드 주기까지, 인공지능이 도출한 완벽한 성장 전략을 받아보세요.</p>
+                  <Button onClick={() => setCurrentView('subscription')} className="w-full bg-indigo-600 border border-indigo-500 text-white rounded-[2rem] h-14 font-black text-base shadow-[0_15px_30px_-10px_rgba(79,70,229,0.5)] hover:shadow-[0_20px_40px_-10px_rgba(79,70,229,0.6)] active:scale-95 transition-all">
+                    리포트 잠금 해제하기
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <CardHeader className="border-b border-indigo-100/50 pb-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-xl font-bold flex items-center gap-2 text-indigo-900">
-                  AI 콘텐츠 마케팅 전략
+                <CardTitle className="text-xl font-black flex items-center gap-2 text-indigo-900">
+                  <span className="bg-gradient-to-r from-indigo-600 to-purple-600 text-transparent bg-clip-text">AI 콘텐츠 마케팅 전략</span>
                 </CardTitle>
-                <Badge variant="outline" className="bg-indigo-600 text-white border-none px-3 py-1 animate-pulse">
-                  AI 분석 리포트
+                <Badge variant="outline" className="bg-indigo-600 text-white border-none px-3 py-1 font-bold shadow-sm shadow-indigo-300">
+                  AI Premium 요약 리포트
                 </Badge>
               </div>
             </CardHeader>
 
-            <CardContent className="p-8">
-              {performanceReportLoading ? (
+            <CardContent className="p-8 flex-1 flex flex-col">
+              {sectionErrors.insights ? (
+                renderDataError("AI 리포트", () => {
+                  const cid = localStorage.getItem('customer_id');
+                  if (cid) {
+                    loadAiInsights(cid);
+                    loadPerformanceReport(cid);
+                  }
+                })
+              ) : performanceReportLoading ? (
                 <div className="py-12 flex flex-col items-center justify-center text-center">
                   <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-4 animate-bounce">
                     <Sparkles className="w-6 h-6 text-indigo-600" />
@@ -2717,21 +3370,37 @@ function Dashboard() {
                   <p className="text-sm text-indigo-600/70">최근 게시물의 성과를 바탕으로 최적의 전략을 도출하고 있습니다...</p>
                 </div>
               ) : performanceReport?.error ? (
-                <div className="py-12 text-center bg-white/50 rounded-2xl border border-dashed border-indigo-200">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Sparkles className="w-6 h-6 text-indigo-400" />
+                <div className="py-12 text-center bg-white/50 rounded-[2rem] border-2 border-dashed border-indigo-100 mx-4">
+                  <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm">
+                    <Sparkles className="w-8 h-8 text-indigo-300" />
                   </div>
-                  <p className="text-indigo-600 font-bold mb-1">AI 분석 리포트 중단</p>
-                  <p className="text-gray-500 text-sm max-w-sm mx-auto whitespace-pre-wrap">
+                  <h4 className="text-lg font-black text-indigo-900 mb-2">AI 분석 리포트 생성 실패</h4>
+                  <p className="text-gray-500 text-sm max-w-sm mx-auto whitespace-pre-wrap font-medium mb-8 leading-relaxed">
                     {performanceReport.error}
                   </p>
-                  <Button
-                    variant="link"
-                    className="mt-2 text-indigo-600 font-bold text-xs"
-                    onClick={() => setCurrentView('subscription')}
-                  >
-                    내 요금제 한도 확인
-                  </Button>
+
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center items-center px-6">
+                    <Button
+                      onClick={() => {
+                        const cid = localStorage.getItem('customer_id');
+                        if (cid) loadPerformanceReport(cid, true);
+                      }}
+                      className="bg-indigo-600 text-white rounded-xl h-11 px-8 font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${performanceReportLoading ? 'animate-spin' : ''}`} />
+                      다시 시도하기
+                    </Button>
+
+                    {performanceReport.isLimitReached && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setCurrentView('subscription')}
+                        className="rounded-xl h-11 px-6 font-bold border-indigo-100 text-indigo-600 hover:bg-indigo-50"
+                      >
+                        내 요금제 한도 확인
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ) : performanceReport ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -2815,7 +3484,7 @@ function Dashboard() {
           </Card>
         </div>
         <div className="grid grid-cols-1 mb-8">
-          <Card className="border border-gray-200 shadow-sm bg-white">
+          <Card className="border border-gray-100 shadow-sm bg-white rounded-[2rem] overflow-hidden">
             <CardHeader className="border-b border-gray-100 py-5 px-6">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -2961,237 +3630,226 @@ function Dashboard() {
     };
 
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* Header with Back Button and Stats */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white/50 backdrop-blur-sm p-6 rounded-[2.5rem] border border-gray-100 shadow-sm">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setSelectedPost(null);
-                setPostAnalysisResult(null);
-                setIsSelectionMode(false);
-                setSelectedCommentIds(new Set());
-              }}
-              className="rounded-2xl hover:bg-white hover:shadow-md transition-all h-12 w-12"
-            >
-              <ArrowLeft className="w-6 h-6 text-gray-900" />
-            </Button>
-            <div>
-              <h3 className="text-xl font-black text-gray-900 leading-tight">게시물 분석 결과</h3>
-              <p className="text-sm text-gray-500 font-bold">
-                {moderationSubFilter === 'ALL' ? '탐지된 모든 댓글' :
-                  moderationSubFilter === 'TOXIC' ? '탐지된 악플' :
-                    moderationSubFilter === 'SPAM' ? '탐지된 스팸' : '탐지된 불만'} ({counts[moderationSubFilter]}개)
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsSelectionMode(!isSelectionMode);
-                setSelectedCommentIds(new Set());
-              }}
-              className={`h-11 px-6 rounded-2xl font-bold text-sm transition-all ${isSelectionMode ? 'bg-indigo-600 text-white border-none shadow-lg shadow-indigo-100' : 'bg-white border-gray-100 text-gray-600 hover:border-gray-300'}`}
-            >
-              {isSelectionMode ? '선택 취소' : '선택 삭제'}
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => {
-                const ids = filteredComments.map(c => c.id);
-                if (ids.length > 0) {
-                  setModerationActionType('HIDE');
-                  setIdsToConfirmDelete(ids);
-                  setShowDeleteConfirmModal(true);
-                }
-              }}
-              disabled={filteredComments.length === 0 || isSelectionMode}
-              className="h-11 px-6 rounded-2xl font-bold text-sm bg-white border-gray-100 text-gray-600 hover:border-gray-300 transition-all disabled:opacity-30"
-            >
-              <EyeOff className="w-4 h-4 mr-2" />
-              {moderationSubFilter === 'ALL' ? '전체 숨김' :
-                moderationSubFilter === 'TOXIC' ? '악플 전체 숨김' :
-                  moderationSubFilter === 'SPAM' ? '스팸 전체 숨김' : '불만 전체 숨김'}
-            </Button>
-
-            <Button
-              onClick={() => {
-                const ids = filteredComments.map(c => c.id);
-                if (ids.length > 0) {
-                  setModerationActionType('DELETE');
-                  setIdsToConfirmDelete(ids);
-                  setShowDeleteConfirmModal(true);
-                }
-              }}
-              disabled={filteredComments.length === 0 || isSelectionMode}
-              className="bg-red-600 text-white hover:bg-red-700 h-11 px-6 rounded-2xl font-black text-sm shadow-lg shadow-red-100 border-none transition-all disabled:opacity-30 disabled:grayscale"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              {moderationSubFilter === 'ALL' ? '전체 삭제' :
-                moderationSubFilter === 'TOXIC' ? '악플 전체 삭제' :
-                  moderationSubFilter === 'SPAM' ? '스팸 전체 삭제' : '불만 전체 삭제'}
-            </Button>
+      <div className="space-y-6">
+        {/* 1. Header (Always accessible for back navigation) */}
+        <div className="flex items-center gap-4 bg-white/50 backdrop-blur-sm p-4 rounded-[2.5rem] border border-gray-100 shadow-sm relative z-40">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setSelectedPost(null);
+              setPostAnalysisResult(null);
+              setIsSelectionMode(false);
+              setSelectedCommentIds(new Set());
+            }}
+            className="rounded-2xl hover:bg-white hover:shadow-md transition-all h-12 w-12"
+          >
+            <ArrowLeft className="w-6 h-6 text-gray-900" />
+          </Button>
+          <div>
+            <h3 className="text-xl font-black text-gray-900 leading-tight">게시물 분석 결과</h3>
+            <p className="text-sm text-gray-500 font-bold">
+              {isAiPremiumLocked ? 'AI 클린가드 분석 (AI 요금제)' : (
+                <>
+                  {moderationSubFilter === 'ALL' ? '탐지된 모든 댓글' :
+                    moderationSubFilter === 'TOXIC' ? '탐지된 악플' :
+                      moderationSubFilter === 'SPAM' ? '탐지된 스팸' : '탐지된 불만'} ({counts[moderationSubFilter]}개)
+                </>
+              )}
+            </p>
           </div>
         </div>
 
-        {/* Selection Actions Bar (Appears when items are selected) */}
-        {isSelectionMode && selectedCommentIds.size > 0 && (
-          <div className="flex items-center justify-between gap-4 bg-indigo-50 p-4 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2 duration-300">
-            <span className="text-sm font-black text-indigo-900 ml-2">
-              {selectedCommentIds.size}개의 댓글 선택됨
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setModerationActionType('HIDE');
-                  setIdsToConfirmDelete(Array.from(selectedCommentIds));
-                  setShowDeleteConfirmModal(true);
-                }}
-                className="bg-white border-indigo-200 text-indigo-600 h-10 px-4 rounded-xl font-bold text-sm"
-              >
-                <EyeOff className="w-4 h-4 mr-2" />
-                선택 숨김
-              </Button>
-              <Button
-                onClick={() => {
-                  setModerationActionType('DELETE');
-                  setIdsToConfirmDelete(Array.from(selectedCommentIds));
-                  setShowDeleteConfirmModal(true);
-                }}
-                className="bg-red-500 text-white hover:bg-red-600 h-10 px-4 rounded-xl font-bold text-sm"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                선택 삭제
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* 2. Analysis Content (Locked for Basic users) */}
+        <div className="relative overflow-hidden rounded-[2.5rem] min-h-[500px]">
+          <div className={`space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all ${isAiPremiumLocked ? 'blur-md pointer-events-none select-none opacity-40' : ''}`}>
+            {/* Action Bar */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white/30 p-6 rounded-[2.5rem] border border-gray-50 shadow-sm">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsSelectionMode(!isSelectionMode);
+                    setSelectedCommentIds(new Set());
+                  }}
+                  className={`h-11 px-6 rounded-2xl font-bold text-sm transition-all ${isSelectionMode ? 'bg-indigo-600 text-white border-none shadow-lg shadow-indigo-100' : 'bg-white border-gray-100 text-gray-600 hover:border-gray-300'}`}
+                >
+                  {isSelectionMode ? '선택 취소' : '선택 삭제'}
+                </Button>
 
-        {/* Category Filter Tabs */}
-        <div className="flex items-center gap-2 p-1 bg-gray-100/50 rounded-2xl w-fit">
-          {[
-            { id: 'ALL', label: '전체' },
-            { id: 'TOXIC', label: '악플' },
-            { id: 'SPAM', label: '스팸' },
-            { id: 'COMPLAINT', label: '불만' }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setModerationSubFilter(tab.id);
-                setIsSelectionMode(false);
-                setSelectedCommentIds(new Set());
-              }}
-              className={`px-5 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${moderationSubFilter === tab.id
-                ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
-                : 'text-gray-400 hover:text-gray-600'
-                }`}
-            >
-              {tab.label}
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${moderationSubFilter === tab.id ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                {counts[tab.id]}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* Comment List */}
-        {filteredComments.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4">
-            {filteredComments.map((comment, idx) => (
-              <div
-                key={comment.id}
-                onClick={() => {
-                  if (isSelectionMode) {
-                    const newSet = new Set(selectedCommentIds);
-                    if (newSet.has(comment.id)) {
-                      newSet.delete(comment.id);
-                    } else {
-                      newSet.add(comment.id);
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const ids = filteredComments.map(c => c.id);
+                    if (ids.length > 0) {
+                      setModerationActionType('HIDE');
+                      setIdsToConfirmDelete(ids);
+                      setShowDeleteConfirmModal(true);
                     }
-                    setSelectedCommentIds(newSet);
-                  }
-                }}
-                className={`group p-5 bg-white rounded-2xl border ${isSelectionMode && selectedCommentIds.has(comment.id) ? 'border-indigo-200 bg-indigo-50/20 shadow-md' : 'border-gray-100 hover:border-gray-300 hover:shadow-lg'} transition-all duration-300 flex gap-4 items-start ${isSelectionMode ? 'cursor-pointer' : ''}`}
-              >
-                {isSelectionMode && (
-                  <div className="pt-1">
-                    {selectedCommentIds.has(comment.id) ? (
-                      <CheckCircle2 className="w-5 h-5 text-indigo-600 animate-in zoom-in-50 duration-200" />
-                    ) : (
-                      <Square className="w-5 h-5 text-gray-200 group-hover:text-gray-300" />
-                    )}
-                  </div>
-                )}
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-black text-gray-900 text-sm">{comment.username}</span>
-                    <Badge className={`${comment?.analysis?.category === 'SPAM' ? 'bg-orange-100 text-orange-600' :
-                      comment?.analysis?.category === 'COMPLAINT' ? 'bg-amber-100 text-amber-600' :
-                        'bg-red-100 text-red-600'
-                      } border-none rounded-full px-2.5 py-0.5 text-[10px] font-black`}>
-                      {comment?.analysis?.category === 'SPAM' ? '스팸' : comment?.analysis?.category === 'COMPLAINT' ? '불만' : '악플'}
-                    </Badge>
-                  </div>
-                  <div className="bg-gray-50 p-3 rounded-xl">
-                    <p className="text-gray-700 text-sm font-medium leading-relaxed break-all">
-                      {comment.text}
-                    </p>
-                  </div>
-                  <p className="text-[10px] text-gray-400 pl-1">
-                    {new Date(comment.timestamp).toLocaleString()}
-                  </p>
-                </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setModerationActionType('HIDE');
-                        setIdsToConfirmDelete([comment.id]);
-                        setShowDeleteConfirmModal(true);
-                      }}
-                      className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all h-9 w-9"
-                    >
-                      <EyeOff className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setModerationActionType('DELETE');
-                        setIdsToConfirmDelete([comment.id]);
-                        setShowDeleteConfirmModal(true);
-                      }}
-                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all h-9 w-9"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  }}
+                  disabled={filteredComments.length === 0 || isSelectionMode}
+                  className="h-11 px-6 rounded-2xl font-bold text-sm bg-white border-gray-100 text-gray-600 hover:border-gray-300 transition-all disabled:opacity-30"
+                >
+                  <EyeOff className="w-4 h-4 mr-2" />
+                  {moderationSubFilter === 'ALL' ? '전체 숨김' :
+                    moderationSubFilter === 'TOXIC' ? '악플 전체 숨김' :
+                      moderationSubFilter === 'SPAM' ? '스팸 전체 숨김' : '불만 전체 숨김'}
+                </Button>
+
+                <Button
+                  onClick={() => {
+                    const ids = filteredComments.map(c => c.id);
+                    if (ids.length > 0) {
+                      setModerationActionType('DELETE');
+                      setIdsToConfirmDelete(ids);
+                      setShowDeleteConfirmModal(true);
+                    }
+                  }}
+                  disabled={filteredComments.length === 0 || isSelectionMode}
+                  className="bg-red-600 text-white hover:bg-red-700 h-11 px-6 rounded-2xl font-black text-sm shadow-lg shadow-red-100 border-none transition-all disabled:opacity-30 disabled:grayscale"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {moderationSubFilter === 'ALL' ? '전체 삭제' :
+                    moderationSubFilter === 'TOXIC' ? '악플 전체 삭제' :
+                      moderationSubFilter === 'SPAM' ? '스팸 전체 삭제' : '불만 전체 삭제'}
+                </Button>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-[2.5rem] border-2 border-dashed border-gray-100">
-            <div className="text-center space-y-2">
-              <p className="text-gray-400 font-medium">이 카테고리에는 탐지된 댓글이 없습니다.</p>
-              <Button variant="link" onClick={() => setModerationSubFilter('ALL')} className="text-indigo-600 font-bold">
-                전체 댓글 보기
-              </Button>
             </div>
+
+            {/* Selection Actions Bar (Appears when items are selected) */}
+            {isSelectionMode && selectedCommentIds.size > 0 && (
+              <div className="flex items-center justify-between gap-4 bg-indigo-50 p-4 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2 duration-300">
+                <span className="text-sm font-black text-indigo-900 ml-2">
+                  {selectedCommentIds.size}개의 댓글 선택됨
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setModerationActionType('HIDE');
+                      setIdsToConfirmDelete(Array.from(selectedCommentIds));
+                      setShowDeleteConfirmModal(true);
+                    }}
+                    className="bg-white border-indigo-200 text-indigo-600 h-10 px-4 rounded-xl font-bold text-sm"
+                  >
+                    <EyeOff className="w-4 h-4 mr-2" />
+                    선택 숨김
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setModerationActionType('DELETE');
+                      setIdsToConfirmDelete(Array.from(selectedCommentIds));
+                      setShowDeleteConfirmModal(true);
+                    }}
+                    className="bg-red-500 text-white hover:bg-red-600 h-10 px-4 rounded-xl font-bold text-sm"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    선택 삭제
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-2 p-1 bg-gray-100/50 rounded-2xl w-fit">
+              {[
+                { id: 'ALL', label: '전체' },
+                { id: 'TOXIC', label: '악플' },
+                { id: 'SPAM', label: '스팸' },
+                { id: 'COMPLAINT', label: '불만' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setModerationSubFilter(tab.id);
+                    setIsSelectionMode(false);
+                    setSelectedCommentIds(new Set());
+                  }}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${moderationSubFilter === tab.id
+                    ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
+                    : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                >
+                  {tab.label}
+                  {!isAiPremiumLocked && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${moderationSubFilter === tab.id ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                      {counts[tab.id]}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Comment List */}
+            {filteredComments.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4">
+                {filteredComments.slice(0, 5).map((comment, idx) => (
+                  <div
+                    key={comment.id}
+                    className={`group p-5 bg-white rounded-2xl border border-gray-100 transition-all duration-300 flex gap-4 items-start`}
+                  >
+                    <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-sm border-2 border-white flex-shrink-0">
+                      <img src={comment.user_profile_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.username}`} alt={comment.username} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-black text-sm text-gray-900">@{comment.username}</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                          {new Date(comment.timestamp).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 font-medium leading-relaxed mb-3">
+                        {comment.text}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge className="bg-indigo-50 text-indigo-600 border-none font-bold text-[10px] py-1 rounded-lg">
+                          AI 분석됨
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white py-12 rounded-3xl border-2 border-dashed border-gray-100 text-center">
+                <div className="w-14 h-14 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Sparkles className="w-6 h-6 text-gray-300" />
+                </div>
+                <h4 className="text-lg font-black text-gray-900 mb-1">탐지된 댓글이 없습니다</h4>
+                <p className="text-sm text-gray-500 font-bold">포스트에 깨끗한 댓글만 가득합니다!</p>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Locked Overlay for Basic Users */}
+          {isAiPremiumLocked && (
+            <div className="absolute inset-0 z-30 backdrop-blur-md bg-white/40 flex flex-col items-center justify-center p-8 text-center rounded-[2.5rem]">
+              <div className="max-w-md bg-white p-10 rounded-[3rem] shadow-2xl border border-indigo-100 flex flex-col items-center animate-in zoom-in-95 duration-500">
+                <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 relative">
+                  <Sparkles className="w-10 h-10 text-indigo-600 animate-pulse" />
+                  <Lock className="absolute -right-1 -bottom-1 w-8 h-8 text-indigo-400 bg-white rounded-full p-1.5 shadow-sm border border-indigo-50" />
+                </div>
+                <h3 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">AI 댓글 정밀 분석</h3>
+                <p className="text-sm font-bold text-gray-500 mb-8 leading-relaxed">
+                  AI가 수만 개의 댓글 속에서 악플, 스팸, 고객 불만을 자동으로 분류해 드립니다.<br />
+                  <span className="text-indigo-600">AI 요금제</span>로 업그레이드하고<br />
+                  번거로운 수동 관리 시간을 90% 이상 절감하세요.
+                </p>
+                <Button
+                  onClick={() => setCurrentView('subscription')}
+                  className="w-full bg-indigo-600 text-white rounded-[2rem] h-14 font-black text-base shadow-[0_15px_30px_-10px_rgba(79,70,229,0.5)] hover:shadow-[0_20px_40px_-10px_rgba(79,70,229,0.6)] active:scale-95 transition-all"
+                >
+                  AI 요금제로 업그레이드하기
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
+
+
 
   const renderComments = () => {
     const recentPosts = igInsights?.recent_media || [];
@@ -3220,8 +3878,15 @@ function Dashboard() {
 
     let content = null;
 
+    // 0. Error State (Shield Logic)
+    if (sectionErrors.comments) {
+      content = renderDataError("게시물 목록", () => {
+        const cid = localStorage.getItem('customer_id');
+        if (cid) loadRecentPostsForAnalysis(cid);
+      });
+    }
     // 1. Loading State (Initial Fetching - NEW TABLE SKELETON)
-    if (igInsightsLoading && recentPosts.length === 0) {
+    else if (igInsightsLoading && recentPosts.length === 0) {
       content = (
         <div className="w-full bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -3319,8 +3984,14 @@ function Dashboard() {
                   return (
                     <tr
                       key={post.id}
-                      className="hover:bg-purple-50/30 cursor-pointer transition-colors group"
-                      onClick={() => analyzePost(post.id)}
+                      className="hover:bg-purple-50/30 cursor-pointer transition-colors group relative"
+                      onClick={() => {
+                        if (isAiPremiumLocked) {
+                          showPremiumLockToast('AI 댓글 분석은 AI PRO 요금제 전용 기능입니다.');
+                          return;
+                        }
+                        analyzePost(post.id);
+                      }}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-100">
@@ -3383,9 +4054,16 @@ function Dashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-[13px] font-black text-gray-900 bg-gray-50 px-2 py-1 rounded-md whitespace-nowrap">
-                          {engagementRate}
-                        </span>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-[13px] font-black text-gray-900 bg-gray-50 px-2 py-1 rounded-md whitespace-nowrap">
+                            {engagementRate}
+                          </span>
+                          {isAiPremiumLocked && (
+                            <div className="w-5 h-5 bg-indigo-50 rounded-lg flex items-center justify-center border border-indigo-100" title="AI 요금제 전용">
+                              <Lock className="w-3 h-3 text-indigo-400" />
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -3397,7 +4075,7 @@ function Dashboard() {
       );
     }
     // 4. Loading Individual Analysis
-    else if (analysisLoading) {
+    else if (analysisLoading && !isAiPremiumLocked) {
       content = (
         <Card className="max-w-3xl mx-auto mt-12 border-none shadow-none bg-transparent">
           <CardContent className="text-center p-12">
@@ -3430,290 +4108,311 @@ function Dashboard() {
         const cats = analysis?.categories || {};
         const totalAnalyzed = comments?.length || 0;
         content = (
-          <div className="animate-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto">
-            <Card className="mb-8 border border-gray-100 bg-white shadow-sm overflow-hidden rounded-[2.5rem]">
-              <div className="flex flex-col md:flex-row">
-                <div className="w-full md:w-80 bg-gray-50/30 p-6 flex flex-col justify-center items-center md:border-r border-gray-100">
-                  <div className="w-full aspect-square rounded-2xl overflow-hidden mb-4 shadow-sm bg-gray-100 relative group/carousel">
-                    {post?.media_url ? (
-                      <>
-                        {/* Media Display */}
-                        <div className="w-full h-full bg-gray-50 flex items-center justify-center">
-                          {post.children?.data?.length > 0 ? (
-                            <img
-                              src={post.children.data[analysisMediaIndex]?.thumbnail_url || post.children.data[analysisMediaIndex]?.media_url || post.thumbnail_url || post.media_url}
-                              onError={(e) => { e.target.src = '/assets/instagram-logo.svg'; e.target.className = 'w-12 h-12 opacity-20 object-contain'; }}
-                              alt={`Post content ${analysisMediaIndex + 1}`}
-                              className="w-full h-full object-cover transition-all duration-500"
-                            />
-                          ) : (
-                            <img
-                              src={post.thumbnail_url || post.media_url || '/assets/instagram-logo.svg'}
-                              onError={(e) => { e.target.src = '/assets/instagram-logo.svg'; e.target.className = 'w-12 h-12 opacity-20 object-contain'; }}
-                              alt="Post content"
-                              className="w-full h-full object-cover"
-                            />
-                          )}
-                        </div>
-
-                        {/* Navigation Controls */}
-                        {post.children?.data?.length > 1 && (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAnalysisMediaIndex(prev => (prev === 0 ? post.children.data.length - 1 : prev - 1));
-                              }}
-                              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-gray-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-white"
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAnalysisMediaIndex(prev => (prev === post.children.data.length - 1 ? 0 : prev + 1));
-                              }}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-gray-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-white"
-                            >
-                              <ChevronRight className="w-5 h-5" />
-                            </button>
-
-                            {/* Indicators */}
-                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-2 py-1 rounded-full bg-black/10 backdrop-blur-sm">
-                              {post.children.data.map((_, idx) => (
-                                <div
-                                  key={idx}
-                                  className={`w-1.5 h-1.5 rounded-full transition-all ${idx === analysisMediaIndex ? 'bg-white w-3' : 'bg-white/50'
-                                    }`}
-                                />
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-gray-300" /></div>
-                    )}
+          <div className="animate-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto relative overflow-hidden rounded-[2.5rem]">
+            {/* Premium Lock Overlay for Detail View */}
+            {isAiPremiumLocked && (
+              <div className="absolute inset-0 z-50 backdrop-blur-3xl bg-white/60 flex flex-col items-center justify-center p-8 text-center rounded-[2.5rem]">
+                <div className="max-w-md bg-white p-10 rounded-[3rem] shadow-2xl border border-indigo-100 flex flex-col items-center animate-in zoom-in-95 duration-500">
+                  <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-6 relative">
+                    <Sparkles className="w-10 h-10 text-indigo-600 animate-pulse" />
+                    <Lock className="absolute -right-1 -bottom-1 w-8 h-8 text-indigo-400 bg-white rounded-full p-1.5 shadow-sm border border-indigo-50" />
                   </div>
-                  <div className="text-center w-full">
-                    <div className="flex items-center justify-center gap-3.5 mb-4 py-2 border-b border-gray-50">
-                      <div className="flex items-center gap-1.5 text-gray-900">
-                        <Heart className="w-4 h-4 text-gray-900 fill-gray-900" />
-                        <span className="text-sm font-bold">{post?.like_count || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-900">
-                        <MessageSquare className="w-4 h-4 text-gray-900 fill-gray-900" />
-                        <span className="text-sm font-bold">{post?.comments_count || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-900">
-                        <Share2 className="w-4 h-4 text-gray-900 fill-gray-900" />
-                        <span className="text-sm font-bold">{post?.share_count || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-900">
-                        <Bookmark className="w-4 h-4 text-gray-900 fill-gray-900" />
-                        <span className="text-sm font-bold">{post?.save_count || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-900">
-                        <Eye className="w-4 h-4 text-gray-900" />
-                        <span className="text-sm font-bold">{post?.view_count || post?.impressions || post?.reach || 0}</span>
-                      </div>
+                  <h3 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">AI 댓글 분석 요약 (AI 요금제)</h3>
+                  <p className="text-sm font-bold text-gray-500 mb-8 leading-relaxed">
+                    AI가 모든 댓글을 실시간으로 분석하여 요약 리포트를 생성합니다.<br />
+                    감정 분석부터 대응 우선순위까지 한눈에 확인해 보세요.
+                  </p>
+                  <Button onClick={() => setCurrentView('subscription')} className="w-full bg-indigo-600 text-white rounded-[2rem] h-14 font-black text-base shadow-[0_15px_30px_-10px_rgba(79,70,229,0.5)] hover:shadow-[0_20px_40px_-10px_rgba(79,70,229,0.6)] active:scale-95 transition-all">
+                    AI 요금제로 업그레이드하기
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className={`transition-all duration-500 ${isAiPremiumLocked ? 'blur-md pointer-events-none opacity-40 select-none' : ''}`}>
+              <Card className="mb-8 border border-gray-100 bg-white shadow-sm overflow-hidden rounded-[2.5rem]">
+                <div className="flex flex-col md:flex-row">
+                  <div className="w-full md:w-80 bg-gray-50/30 p-6 flex flex-col justify-center items-center md:border-r border-gray-100">
+                    <div className="w-full aspect-square rounded-2xl overflow-hidden mb-4 shadow-sm bg-gray-100 relative group/carousel">
+                      {post?.media_url ? (
+                        <>
+                          {/* Media Display */}
+                          <div className="w-full h-full bg-gray-50 flex items-center justify-center">
+                            {post.children?.data?.length > 0 ? (
+                              <img
+                                src={post.children.data[analysisMediaIndex]?.thumbnail_url || post.children.data[analysisMediaIndex]?.media_url || post.thumbnail_url || post.media_url}
+                                onError={(e) => { e.target.src = '/assets/instagram-logo.svg'; e.target.className = 'w-12 h-12 opacity-20 object-contain'; }}
+                                alt={`Post content ${analysisMediaIndex + 1}`}
+                                className="w-full h-full object-cover transition-all duration-500"
+                              />
+                            ) : (
+                              <img
+                                src={post.thumbnail_url || post.media_url || '/assets/instagram-logo.svg'}
+                                onError={(e) => { e.target.src = '/assets/instagram-logo.svg'; e.target.className = 'w-12 h-12 opacity-20 object-contain'; }}
+                                alt="Post content"
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                          </div>
+
+                          {/* Navigation Controls */}
+                          {post.children?.data?.length > 1 && (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAnalysisMediaIndex(prev => (prev === 0 ? post.children.data.length - 1 : prev - 1));
+                                }}
+                                className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-gray-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-white"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAnalysisMediaIndex(prev => (prev === post.children.data.length - 1 ? 0 : prev + 1));
+                                }}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-gray-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity hover:bg-white"
+                              >
+                                <ChevronRight className="w-5 h-5" />
+                              </button>
+
+                              {/* Indicators */}
+                              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-2 py-1 rounded-full bg-black/10 backdrop-blur-sm">
+                                {post.children.data.map((_, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={`w-1.5 h-1.5 rounded-full transition-all ${idx === analysisMediaIndex ? 'bg-white w-3' : 'bg-white/50'
+                                      }`}
+                                  />
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center"><ImageIcon className="text-gray-300" /></div>
+                      )}
                     </div>
-                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(post?.timestamp).toLocaleDateString()}</p>
+                    <div className="text-center w-full">
+                      <div className="flex items-center justify-center gap-3.5 mb-4 py-2 border-b border-gray-50">
+                        <div className="flex items-center gap-1.5 text-gray-900">
+                          <Heart className="w-4 h-4 text-gray-900 fill-gray-900" />
+                          <span className="text-sm font-bold">{post?.like_count || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-gray-900">
+                          <MessageSquare className="w-4 h-4 text-gray-900 fill-gray-900" />
+                          <span className="text-sm font-bold">{post?.comments_count || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-gray-900">
+                          <Share2 className="w-4 h-4 text-gray-900 fill-gray-900" />
+                          <span className="text-sm font-bold">{post?.share_count || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-gray-900">
+                          <Bookmark className="w-4 h-4 text-gray-900 fill-gray-900" />
+                          <span className="text-sm font-bold">{post?.save_count || 0}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-gray-900">
+                          <Eye className="w-4 h-4 text-gray-900" />
+                          <span className="text-sm font-bold">{post?.view_count || post?.impressions || post?.reach || 0}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{new Date(post?.timestamp).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 p-8">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-black text-gray-900 uppercase">
+                          AI 분석 리포트
+                        </h2>
+                        <button
+                          onClick={() => analyzePost(post.id, true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-indigo-600 transition-all shadow-sm"
+                          title="분석 결과 최신화"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${analysisLoading ? 'animate-spin text-indigo-500' : ''}`} />
+                          다시 분석
+                        </button>
+                      </div>
+                      {analysis?.dominant_sentiment && (
+                        <Badge className={`text-[10px] font-black px-3 py-1 rounded-full border-none shadow-sm ${analysis.dominant_sentiment === 'POSITIVE' ? 'bg-emerald-100 text-emerald-700' :
+                          analysis.dominant_sentiment === 'NEGATIVE' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                          {analysis.dominant_sentiment === 'POSITIVE' ? '긍정적 여론' :
+                            analysis.dominant_sentiment === 'NEGATIVE' ? '부정적 여론' : '중립적 여론'}
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="bg-gray-50/50 rounded-2xl p-6 border border-gray-100 mb-8">
+                      <p className="text-gray-700 text-base leading-relaxed font-bold">
+                        {analysis?.summary || '요약 정보를 생성하지 못했습니다.'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      {[
+                        { k: 'PRAISE', label: '칭찬', color: 'text-pink-600', bgColor: 'bg-pink-50 border-pink-100', icon: ThumbsUp, blob: 'bg-pink-400' },
+                        { k: 'COMPLAINT', label: '불만', color: 'text-red-600', bgColor: 'bg-red-50 border-red-100', icon: ThumbsDown, blob: 'bg-red-400' },
+                        { k: 'QUESTION', label: '문의', color: 'text-blue-600', bgColor: 'bg-blue-50 border-blue-100', icon: HelpCircle, blob: 'bg-blue-400' },
+                        { k: 'FEEDBACK', label: '피드백', color: 'text-amber-600', bgColor: 'bg-amber-50 border-amber-100', icon: Lightbulb, blob: 'bg-amber-400' },
+                        { k: 'NEUTRAL', label: '일반', color: 'text-gray-600', bgColor: 'bg-gray-50 border-gray-100', icon: Meh, blob: 'bg-gray-400' },
+                      ].map(cat => (
+                        <div key={cat.k} className="group relative bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden h-28 flex flex-col justify-between">
+                          <div className={`absolute -right-4 -top-4 w-12 h-12 rounded-full opacity-5 blur-xl group-hover:opacity-10 transition-opacity ${cat.blob}`}></div>
+                          <div className="flex items-start justify-between relative z-10">
+                            <div className={`p-2 rounded-lg ${cat.bgColor}`}>
+                              <cat.icon className={`w-4 h-4 ${cat.color}`} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{cat.label}</span>
+                          </div>
+                          <div className="relative z-10">
+                            <span className="text-2xl font-black text-gray-900">{cats[cat.k?.toLowerCase()] || cats[cat.k] || 0}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              </Card>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <h3 className="text-xl font-black text-gray-900 flex items-center gap-2 shrink-0">
+                  <MessageSquare className="w-5 h-5 text-indigo-500" />
+                  상세 댓글 분석 ({comments.filter(c => {
+                    const catMatch = analysisFilterCategory === 'ALL' || (c.analysis?.category || 'NEUTRAL').toUpperCase() === analysisFilterCategory;
+                    const searchLower = analysisSearchTerm.toLowerCase();
+                    const searchMatch = !analysisSearchTerm ||
+                      (c.text || '').toLowerCase().includes(searchLower) ||
+                      (c.username || '').toLowerCase().includes(searchLower);
+                    return catMatch && searchMatch;
+                  }).length})
+                </h3>
 
-                <div className="flex-1 p-8">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <h2 className="text-xl font-black text-gray-900 uppercase">
-                        AI 분석 리포트
-                      </h2>
+                <div className="flex flex-col sm:flex-row gap-3 items-center flex-1 justify-end">
+                  {/* Search Input */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="댓글 또는 계정 검색..."
+                      value={analysisSearchTerm}
+                      onChange={(e) => setAnalysisSearchTerm(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold placeholder:text-gray-300 shadow-sm"
+                    />
+                    {analysisSearchTerm && (
                       <button
-                        onClick={() => analyzePost(post.id, true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-indigo-600 transition-all shadow-sm"
-                        title="분석 결과 최신화"
+                        onClick={() => setAnalysisSearchTerm('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
-                        <RefreshCw className={`w-3 h-3 ${analysisLoading ? 'animate-spin text-indigo-500' : ''}`} />
-                        다시 분석
+                        <RefreshCw className="w-3.5 h-3.5" />
                       </button>
-                    </div>
-                    {analysis?.dominant_sentiment && (
-                      <Badge className={`text-[10px] font-black px-3 py-1 rounded-full border-none shadow-sm ${analysis.dominant_sentiment === 'POSITIVE' ? 'bg-emerald-100 text-emerald-700' :
-                        analysis.dominant_sentiment === 'NEGATIVE' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                        {analysis.dominant_sentiment === 'POSITIVE' ? '긍정적 여론' :
-                          analysis.dominant_sentiment === 'NEGATIVE' ? '부정적 여론' : '중립적 여론'}
-                      </Badge>
                     )}
                   </div>
 
-                  <div className="bg-gray-50/50 rounded-2xl p-6 border border-gray-100 mb-8">
-                    <p className="text-gray-700 text-base leading-relaxed font-bold">
-                      {analysis?.summary || '요약 정보를 생성하지 못했습니다.'}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  {/* Category Filter Tabs */}
+                  <div className="flex items-center gap-1 bg-gray-100/50 p-1 rounded-xl w-full sm:w-auto overflow-x-auto no-scrollbar shadow-inner">
                     {[
-                      { k: 'PRAISE', label: '칭찬', color: 'text-pink-600', bgColor: 'bg-pink-50 border-pink-100', icon: ThumbsUp, blob: 'bg-pink-400' },
-                      { k: 'COMPLAINT', label: '불만', color: 'text-red-600', bgColor: 'bg-red-50 border-red-100', icon: ThumbsDown, blob: 'bg-red-400' },
-                      { k: 'QUESTION', label: '문의', color: 'text-blue-600', bgColor: 'bg-blue-50 border-blue-100', icon: HelpCircle, blob: 'bg-blue-400' },
-                      { k: 'FEEDBACK', label: '피드백', color: 'text-amber-600', bgColor: 'bg-amber-50 border-amber-100', icon: Lightbulb, blob: 'bg-amber-400' },
-                      { k: 'NEUTRAL', label: '일반', color: 'text-gray-600', bgColor: 'bg-gray-50 border-gray-100', icon: Meh, blob: 'bg-gray-400' },
-                    ].map(cat => (
-                      <div key={cat.k} className="group relative bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden h-28 flex flex-col justify-between">
-                        <div className={`absolute -right-4 -top-4 w-12 h-12 rounded-full opacity-5 blur-xl group-hover:opacity-10 transition-opacity ${cat.blob}`}></div>
-                        <div className="flex items-start justify-between relative z-10">
-                          <div className={`p-2 rounded-lg ${cat.bgColor}`}>
-                            <cat.icon className={`w-4 h-4 ${cat.color}`} />
-                          </div>
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{cat.label}</span>
-                        </div>
-                        <div className="relative z-10">
-                          <span className="text-2xl font-black text-gray-900">{cats[cat.k?.toLowerCase()] || cats[cat.k] || 0}</span>
-                        </div>
-                      </div>
+                      { id: 'ALL', label: '전체' },
+                      { id: 'PRAISE', label: '칭찬' },
+                      { id: 'COMPLAINT', label: '불만' },
+                      { id: 'QUESTION', label: '문의' },
+                      { id: 'FEEDBACK', label: '피드백' },
+                      { id: 'NEUTRAL', label: '일반' }
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setAnalysisFilterCategory(cat.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all whitespace-nowrap ${analysisFilterCategory === cat.id
+                          ? 'bg-white text-indigo-600 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                      >
+                        {cat.label}
+                      </button>
                     ))}
                   </div>
                 </div>
               </div>
-            </Card>
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-              <h3 className="text-xl font-black text-gray-900 flex items-center gap-2 shrink-0">
-                <MessageSquare className="w-5 h-5 text-indigo-500" />
-                상세 댓글 분석 ({comments.filter(c => {
-                  const catMatch = analysisFilterCategory === 'ALL' || (c.analysis?.category || 'NEUTRAL').toUpperCase() === analysisFilterCategory;
-                  const searchLower = analysisSearchTerm.toLowerCase();
-                  const searchMatch = !analysisSearchTerm ||
-                    (c.text || '').toLowerCase().includes(searchLower) ||
-                    (c.username || '').toLowerCase().includes(searchLower);
-                  return catMatch && searchMatch;
-                }).length})
-              </h3>
 
-              <div className="flex flex-col sm:flex-row gap-3 items-center flex-1 justify-end">
-                {/* Search Input */}
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="댓글 또는 계정 검색..."
-                    value={analysisSearchTerm}
-                    onChange={(e) => setAnalysisSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-white border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold placeholder:text-gray-300 shadow-sm"
-                  />
-                  {analysisSearchTerm && (
-                    <button
-                      onClick={() => setAnalysisSearchTerm('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+              <div className="grid grid-cols-1 gap-4">
+                {(() => {
+                  const filtered = comments.filter(c => {
+                    const catMatch = analysisFilterCategory === 'ALL' || (c.analysis?.category || 'NEUTRAL').toUpperCase() === analysisFilterCategory;
+                    const searchLower = analysisSearchTerm.toLowerCase();
+                    const searchMatch = !analysisSearchTerm ||
+                      (c.text || '').toLowerCase().includes(searchLower) ||
+                      (c.username || '').toLowerCase().includes(searchLower);
+                    return catMatch && searchMatch;
+                  });
 
-                {/* Category Filter Tabs */}
-                <div className="flex items-center gap-1 bg-gray-100/50 p-1 rounded-xl w-full sm:w-auto overflow-x-auto no-scrollbar shadow-inner">
-                  {[
-                    { id: 'ALL', label: '전체' },
-                    { id: 'PRAISE', label: '칭찬' },
-                    { id: 'COMPLAINT', label: '불만' },
-                    { id: 'QUESTION', label: '문의' },
-                    { id: 'FEEDBACK', label: '피드백' },
-                    { id: 'NEUTRAL', label: '일반' }
-                  ].map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setAnalysisFilterCategory(cat.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all whitespace-nowrap ${analysisFilterCategory === cat.id
-                        ? 'bg-white text-indigo-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              {(() => {
-                const filtered = comments.filter(c => {
-                  const catMatch = analysisFilterCategory === 'ALL' || (c.analysis?.category || 'NEUTRAL').toUpperCase() === analysisFilterCategory;
-                  const searchLower = analysisSearchTerm.toLowerCase();
-                  const searchMatch = !analysisSearchTerm ||
-                    (c.text || '').toLowerCase().includes(searchLower) ||
-                    (c.username || '').toLowerCase().includes(searchLower);
-                  return catMatch && searchMatch;
-                });
-
-                if (filtered.length === 0) {
-                  return (
-                    <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-[2.5rem] border-2 border-dashed border-gray-200/50 mt-4">
-                      <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
-                        <MessageSquare className="w-8 h-8 text-gray-200" />
-                      </div>
-                      <p className="text-gray-500 font-black text-lg">해당하는 댓글이 없습니다</p>
-                      <p className="text-gray-400 text-sm font-bold mt-1 text-center">검색어나 필터를 변경하거나<br />다시 확인해 보세요.</p>
-                      {(analysisSearchTerm || analysisFilterCategory !== 'ALL') && (
-                        <Button
-                          variant="ghost"
-                          className="mt-6 text-indigo-600 font-black hover:bg-indigo-50 rounded-xl h-11 px-6 border border-indigo-100"
-                          onClick={() => {
-                            setAnalysisFilterCategory('ALL');
-                            setAnalysisSearchTerm('');
-                          }}
-                        >
-                          필터 초기화
-                        </Button>
-                      )}
-                    </div>
-                  );
-                }
-
-                return filtered.map((c) => {
-                  const commentAnalysis = c.analysis || {};
-                  return (
-                    <Card key={c.id} className={`hover:shadow-lg transition-all duration-300 border-l-4 rounded-2xl ${commentAnalysis.urgency === 'HIGH' ? 'border-l-red-500 bg-red-50/30' : 'border-l-gray-300 bg-white'}`}>
-                      <CardContent className="p-5">
-                        <div className="flex items-start gap-4">
-                          <div className={`flex items-center justify-center w-12 h-12 rounded-xl border flex-shrink-0 shadow-sm ${commentAnalysis.category === 'PRAISE' ? 'bg-pink-50 border-pink-100 text-pink-600' :
-                            commentAnalysis.category === 'COMPLAINT' ? 'bg-red-50 border-red-100 text-red-600' :
-                              commentAnalysis.category === 'QUESTION' ? 'bg-blue-50 border-blue-100 text-blue-600' :
-                                commentAnalysis.category === 'FEEDBACK' ? 'bg-amber-50 border-amber-100 text-amber-600' :
-                                  'bg-gray-50 border-gray-100 text-gray-400'
-                            }`}>
-                            {commentAnalysis.category === 'PRAISE' ? <ThumbsUp className="w-5 h-5" /> :
-                              commentAnalysis.category === 'COMPLAINT' ? <ThumbsDown className="w-5 h-5" /> :
-                                commentAnalysis.category === 'QUESTION' ? <HelpCircle className="w-5 h-5" /> :
-                                  commentAnalysis.category === 'FEEDBACK' ? <Lightbulb className="w-5 h-5" /> :
-                                    <Meh className="w-5 h-5" />}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="font-black text-gray-900">@{c.username || '익명'}</span>
-                                <span className="text-[10px] text-gray-400 font-bold">{new Date(c.timestamp).toLocaleDateString()}</span>
-                              </div>
-                              <div className="flex gap-2">
-                                {commentAnalysis.urgency === 'HIGH' && <Badge className="bg-red-500 text-white animate-pulse border-none rounded-full px-3 py-0.5 text-[10px] font-black">긴급</Badge>}
-                                {commentAnalysis.category === 'question' && <Badge className="bg-indigo-600 text-white border-none rounded-full px-3 py-0.5 text-[10px] font-black">답변 필요</Badge>}
-                              </div>
-                            </div>
-                            <p className="text-gray-700 mb-3 text-sm font-bold leading-relaxed">{c.text}</p>
-                            <div className="bg-gray-50/80 rounded-xl p-3 text-xs border border-gray-100 flex items-start gap-2 shadow-inner">
-                              <Sparkles className="w-3.5 h-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
-                              <p className="text-gray-600 font-medium"><strong className="text-purple-700 mr-2">AI Insight</strong> {commentAnalysis.summary || '상세 분석을 생성하지 못했습니다.'}</p>
-                            </div>
-                          </div>
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 rounded-[2.5rem] border-2 border-dashed border-gray-200/50 mt-4">
+                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
+                          <MessageSquare className="w-8 h-8 text-gray-200" />
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                });
-              })()}
+                        <p className="text-gray-500 font-black text-lg">해당하는 댓글이 없습니다</p>
+                        <p className="text-gray-400 text-sm font-bold mt-1 text-center">검색어나 필터를 변경하거나<br />다시 확인해 보세요.</p>
+                        {(analysisSearchTerm || analysisFilterCategory !== 'ALL') && (
+                          <Button
+                            variant="ghost"
+                            className="mt-6 text-indigo-600 font-black hover:bg-indigo-50 rounded-xl h-11 px-6 border border-indigo-100"
+                            onClick={() => {
+                              setAnalysisFilterCategory('ALL');
+                              setAnalysisSearchTerm('');
+                            }}
+                          >
+                            필터 초기화
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((c) => {
+                    const commentAnalysis = c.analysis || {};
+                    return (
+                      <Card key={c.id} className={`hover:shadow-lg transition-all duration-300 border-l-4 rounded-2xl ${commentAnalysis.urgency === 'HIGH' ? 'border-l-red-500 bg-red-50/30' : 'border-l-gray-300 bg-white'}`}>
+                        <CardContent className="p-5">
+                          <div className="flex items-start gap-4">
+                            <div className={`flex items-center justify-center w-12 h-12 rounded-xl border flex-shrink-0 shadow-sm ${commentAnalysis.category === 'PRAISE' ? 'bg-pink-50 border-pink-100 text-pink-600' :
+                              commentAnalysis.category === 'COMPLAINT' ? 'bg-red-50 border-red-100 text-red-600' :
+                                commentAnalysis.category === 'QUESTION' ? 'bg-blue-50 border-blue-100 text-blue-600' :
+                                  commentAnalysis.category === 'FEEDBACK' ? 'bg-amber-50 border-amber-100 text-amber-600' :
+                                    'bg-gray-50 border-gray-100 text-gray-400'
+                              }`}>
+                              {commentAnalysis.category === 'PRAISE' ? <ThumbsUp className="w-5 h-5" /> :
+                                commentAnalysis.category === 'COMPLAINT' ? <ThumbsDown className="w-5 h-5" /> :
+                                  commentAnalysis.category === 'QUESTION' ? <HelpCircle className="w-5 h-5" /> :
+                                    commentAnalysis.category === 'FEEDBACK' ? <Lightbulb className="w-5 h-5" /> :
+                                      <Meh className="w-5 h-5" />}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-gray-900">@{c.username || '익명'}</span>
+                                  <span className="text-[10px] text-gray-400 font-bold">{new Date(c.timestamp).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                  {commentAnalysis.urgency === 'HIGH' && <Badge className="bg-red-500 text-white animate-pulse border-none rounded-full px-3 py-0.5 text-[10px] font-black">긴급</Badge>}
+                                  {commentAnalysis.category === 'question' && <Badge className="bg-indigo-600 text-white border-none rounded-full px-3 py-0.5 text-[10px] font-black">답변 필요</Badge>}
+                                </div>
+                              </div>
+                              <p className="text-gray-700 mb-3 text-sm font-bold leading-relaxed">{c.text}</p>
+                              <div className="bg-gray-50/80 rounded-xl p-3 text-xs border border-gray-100 flex items-start gap-2 shadow-inner">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
+                                <p className="text-gray-600 font-medium"><strong className="text-purple-700 mr-2">AI Insight</strong> {commentAnalysis.summary || '상세 분석을 생성하지 못했습니다.'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  });
+                })()}
+              </div>
             </div>
           </div>
         );
@@ -3808,7 +4507,11 @@ function Dashboard() {
                 key={post.id}
                 onClick={() => {
                   if (isPremiumFeatureLocked) {
-                    showPremiumLockToast('프리미엄 요금제로 연장해야 새로운 게시물을 분석할 수 있습니다.');
+                    showPremiumLockToast('프리미엄 요금제로 연장해야 포스트를 분석할 수 있습니다.');
+                    return;
+                  }
+                  if (isAiPremiumLocked) {
+                    showPremiumLockToast('AI 댓글 분석은 AI 요금제 전용 기능입니다.');
                     return;
                   }
                   handlePostAnalysis(post);
@@ -3823,8 +4526,8 @@ function Dashboard() {
 
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4">
                   <div className="bg-white/20 backdrop-blur-md px-5 py-2.5 rounded-full flex items-center gap-2 text-white font-bold border border-white/30 transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                    <Sparkles className="w-4 h-4 text-yellow-300" />
-                    <span>정밀 분석 시작</span>
+                    {isAiPremiumLocked ? <Lock className="w-4 h-4 text-white/70" /> : <Sparkles className="w-4 h-4 text-yellow-300" />}
+                    <span>{isAiPremiumLocked ? 'AI 클린가드 (AI 요금제)' : '정밀 분석 시작'}</span>
                   </div>
                 </div>
 
@@ -4075,7 +4778,7 @@ function Dashboard() {
             </CardHeader>
             <CardContent className="p-8 pt-0 space-y-6">
               {/* Row 1: Professional Analysis Packages (Chips) */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap justify-center items-center gap-3">
                 {[
                   { label: '📸 시네마틱 스튜디오', value: '시네마틱한 조명과 인물의 감정선이 강조된 고관여 스튜디오 컨셉으로 분석해 주세요.' },
                   { label: '🍱 비비드 F&B 바이럴', value: '음식의 질감이 살아있는 비비드한 색감과 생동감 넘치는 연출 중심의 컨셉으로 분석해 주세요.' },
@@ -4592,9 +5295,6 @@ function Dashboard() {
     return (
       <div className="space-y-6">
         <div className="mb-12 w-full flex flex-col items-center justify-center text-center space-y-4 relative">
-          <div className="p-4 bg-gray-50 rounded-2xl w-fit mx-auto">
-            <Users className="w-8 h-8 text-gray-400" />
-          </div>
           <div className="flex flex-col items-center">
             <h2 className="text-4xl font-black text-gray-900 tracking-tight mb-2 text-center">
               고객 관리
@@ -4604,13 +5304,25 @@ function Dashboard() {
 
           {/* Refresh Button */}
           <button
-            onClick={() => loadContacts(customerId)}
+            onClick={() => {
+              if (isAiPremiumLocked) {
+                showPremiumLockToast('고객 데이터 실시간 분석은 AI 요금제 전용 기능입니다.');
+                return;
+              }
+              loadContacts(customerId);
+            }}
             disabled={contactsLoading}
-            className="absolute right-0 top-0 p-3 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 group overflow-hidden"
+            className={`absolute right-0 top-0 p-3 bg-white border border-gray-100 rounded-2xl shadow-sm transition-all active:scale-95 group overflow-hidden ${isAiPremiumLocked ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md'}`}
           >
             <div className={`flex items-center gap-2 ${contactsLoading ? 'opacity-50' : ''}`}>
-              <RotateCw className={`w-5 h-5 text-gray-400 group-hover:text-indigo-600 transition-colors ${contactsLoading ? 'animate-spin' : ''}`} />
-              <span className="text-xs font-black text-gray-400 group-hover:text-indigo-600">새로고침</span>
+              {isAiPremiumLocked ? (
+                <Lock className="w-4 h-4 text-gray-400" />
+              ) : (
+                <RotateCw className={`w-5 h-5 text-gray-400 group-hover:text-indigo-600 transition-colors ${contactsLoading ? 'animate-spin' : ''}`} />
+              )}
+              <span className="text-xs font-black text-gray-400 group-hover:text-indigo-600">
+                {isAiPremiumLocked ? '데이터 분석 잠김' : '새로고침'}
+              </span>
             </div>
           </button>
         </div>
@@ -4697,7 +5409,7 @@ function Dashboard() {
           <Card className="lg:col-span-3 xl:col-span-3 border-gray-200 shadow-sm bg-white">
             <CardContent className="p-4 text-center">
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">필터링된 오디언스</p>
-              <p className="text-2xl font-black text-gray-900">{filteredContacts.length}<span className="text-xs text-gray-400 ml-1">명</span></p>
+              <p className="text-2xl font-black text-gray-900">{isAiPremiumLocked ? (dashboardStats?.total_contacts || 0) : filteredContacts.length}<span className="text-xs text-gray-400 ml-1">명</span></p>
             </CardContent>
           </Card>
         </div>
@@ -4729,7 +5441,32 @@ function Dashboard() {
           </div>
         )}
 
-        {contactsLoading ? (
+        {isAiPremiumLocked ? (
+          <div className="relative overflow-hidden">
+            {/* Partial Blur for the background list structure */}
+            <div className="opacity-20 blur-sm pointer-events-none select-none">
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-12 gap-4 px-6 py-2 text-[10px] font-black text-gray-300 uppercase tracking-[0.2em]">
+                  <div className="col-span-4">오디언스 정보</div>
+                  <div className="col-span-3 text-center">소통 지수 / 누적 횟수</div>
+                  <div className="col-span-3 text-center">최근 소통일</div>
+                  <div className="col-span-2 text-right">상세 보기</div>
+                </div>
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="bg-white border border-gray-100 rounded-2xl p-6 h-24"></div>
+                ))}
+              </div>
+            </div>
+            {/* The Lock Overlay Card */}
+            <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+              <PremiumFeatureLock
+                title="AI 고객 관리"
+                description="AI가 고객의 성향을 분석하고 스마트하게 세그먼트를 관리합니다. AI 요금제로 업그레이드하고 정교한 고객 관리를 시작해 보세요."
+                onUpgrade={() => setCurrentView('subscription')}
+              />
+            </div>
+          </div>
+        ) : contactsLoading ? (
           <div className="flex flex-col items-center justify-center min-h-[400px] bg-white rounded-2xl border border-gray-100 shadow-sm">
             <Loader2 className="w-10 h-10 text-gray-900 animate-spin mb-4" />
             <p className="text-gray-500 font-medium animate-pulse">고객 데이터를 분석하며 불러오고 있습니다...</p>
@@ -4995,9 +5732,9 @@ function Dashboard() {
                                   return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
                                 })()}
                               </p>
-                             )}
+                            )}
                           </div>
-                          
+
                           {/* Delete Button */}
                           <div className="flex-shrink-0 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -5333,6 +6070,18 @@ function Dashboard() {
   );
 
   const renderFlows = () => {
+    // Merge standard flows and simple keyword automations for unified management
+    const unifiedAutomations = [
+      ...flows.map(f => ({ ...f, type: 'advanced' })),
+      ...keywordReplies.map((r, idx) => ({
+        ...r,
+        id: `simple-${idx}`,
+        name: r.keyword ? `${r.keyword} 자동 응답` : '초간편 자동화',
+        type: 'simple',
+        masterIndex: idx
+      }))
+    ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
     return (
       <div className="space-y-8">
         <div className="flex flex-col items-center justify-center text-center mb-12 relative w-full">
@@ -5363,63 +6112,183 @@ function Dashboard() {
           </div>
         </div>
 
-
-
-        {flowsLoading ? (
+        {flowsLoading || keywordRepliesLoading ? (
           <div className="flex items-center justify-center p-12">
             <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
           </div>
         ) : (
           <div className="space-y-4">
-            {flows.length === 0 ? (
+            {unifiedAutomations.length === 0 ? (
               <Card className="py-20 border border-dashed border-gray-200 bg-gray-50/50">
                 <CardContent className="flex flex-col items-center justify-center text-center">
                   <Workflow className="w-12 h-12 text-gray-300 mb-4" />
-                  <p className="text-gray-900 font-bold text-lg mb-1">생성된 플로우가 없습니다.</p>
-                  <p className="text-sm text-gray-500">첫 번째 자동화 플로우를 만들어보세요.</p>
+                  <p className="text-gray-900 font-bold text-lg mb-1">생성된 자동화가 없습니다.</p>
+                  <p className="text-sm text-gray-500">첫 번째 자동화를 만들어보세요.</p>
                 </CardContent>
               </Card>
             ) : (
-              flows.map((flow) => (
-                <div key={flow.id} className={`group relative bg-white border border-gray-100 rounded-xl p-5 hover:border-indigo-200 hover:shadow-lg transition-all duration-300 ${!flow.is_active && 'opacity-70 bg-gray-50/50'}`}>
+              unifiedAutomations.map((item) => (
+                <div key={item.id} className={`group relative bg-white border border-gray-100 rounded-xl p-5 hover:border-indigo-200 hover:shadow-lg transition-all duration-300 ${!item.is_active && 'opacity-70 bg-gray-50/50'}`}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     {/* Left: Info */}
                     <div className="flex items-start gap-4">
                       {/* Status Indicator */}
                       <div className="pt-1.5">
-                        <div className={`w-3 h-3 rounded-full ${flow.is_active ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse' : 'bg-gray-300'}`} />
+                        <div className={`w-3 h-3 rounded-full ${item.is_active ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse' : 'bg-gray-300'}`} />
                       </div>
 
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-base font-bold text-gray-900 leading-tight">{safeString(flow.name)}</h3>
-                          <Badge variant="outline" className={`px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider border-gray-200 ${flow.is_active ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400'}`}>
-                            {flow.trigger_source === 'story_mention' ? 'EVENT FLOW' : `${safeString(flow.trigger_type)} flow`}
-                          </Badge>
+                          <h3 className="text-base font-bold text-gray-900 leading-tight">{safeString(item.name)}</h3>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                          {flow.trigger_source === 'story_mention' ? (
-                            <div className="flex items-center gap-1.5 text-gray-600">
-                              <Zap className="w-3.5 h-3.5 text-amber-500" />
-                              <span className="font-bold text-gray-700">
-                                스토리 @태그 시 즉시 실행
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-gray-600">
-                              <Key className="w-3.5 h-3.5 text-indigo-500" />
-                              <span className="font-bold">"{flow.trigger_config?.keyword}"</span>
-                              <span className="text-xs text-gray-400">에 반응</span>
-                            </div>
-                          )}
-                          <div className="h-3 w-px bg-gray-200 hidden sm:block"></div>
-                          <div className="flex items-center gap-1.5 text-gray-500">
-                            <span className="text-xs font-medium text-gray-400">작동 채널:</span>
-                            <span className={`text-xs font-bold ${flow.trigger_source === 'comment' ? 'text-purple-600' : flow.trigger_source === 'dm' ? 'text-blue-600' : 'text-green-600'}`}>
-                              {flow.trigger_source === 'comment' ? '댓글' : flow.trigger_source === 'dm' ? 'DM' : flow.trigger_source === 'story_mention' ? 'DM (자동)' : '전체 채널'}
-                            </span>
-                          </div>
+                          {item.type === 'advanced' ? (
+                            <>
+                              {item.trigger_source === 'story_mention' ? (
+                                <div className="flex items-center gap-1.5 text-gray-600">
+                                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                  <span className="font-bold text-gray-700">스토리 @태그 시 즉시 실행</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 text-gray-600">
+                                  <Key className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span className="font-bold">"{item.trigger_config?.keyword}"</span>
+                                  <span className="text-xs text-gray-400">에 반응</span>
+                                </div>
+                              )}
+                              <div className="h-3 w-px bg-gray-200 hidden sm:block"></div>
+                              <div className="flex items-center gap-1.5 text-gray-500">
+                                <span className="text-xs font-medium text-gray-400">작동 채널:</span>
+                                <span className={`text-xs font-bold ${item.trigger_source === 'comment' ? 'text-purple-600' : item.trigger_source === 'dm' ? 'text-blue-600' : 'text-green-600'}`}>
+                                  {item.trigger_source === 'comment' ? '댓글' : item.trigger_source === 'dm' ? 'DM' : item.trigger_source === 'story_mention' ? 'DM (자동)' : '전체 채널'}
+                                </span>
+                              </div>
+                            </>
+                          ) : (() => {
+                            const rawMediaIds = [
+                              ...(Array.isArray(item.media_ids)
+                                ? item.media_ids
+                                : typeof item.media_ids === 'string'
+                                  ? item.media_ids.split(',').map(v => v.trim()).filter(Boolean)
+                                  : []),
+                              ...(item.media_id ? [item.media_id] : []),
+                            ];
+                            const mediaIds = [...new Set(rawMediaIds.map(id => String(id)).filter(Boolean))];
+                            const targetedMedias = (mediaList || []).filter(m => mediaIds.includes(String(m.id)));
+                            const fallbackPreviewMedias = (item.media_previews || []).filter(m => mediaIds.includes(String(m.id)));
+                            const mergedTargeted = targetedMedias.length > 0 ? targetedMedias : fallbackPreviewMedias;
+                            const previewMedias = mergedTargeted.slice(0, 3);
+                            const hasMore = mediaIds.length > 3;
+
+                            return (
+                              <>
+                                <div className="flex items-center gap-1.5 text-gray-600">
+                                  <Key className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="font-bold">"{item.keyword}"</span>
+                                  <span className="text-xs text-gray-400">에 반응</span>
+                                </div>
+                                <div className="h-3 w-px bg-gray-200 hidden sm:block"></div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-gray-400">대상:</span>
+                                  {mediaIds.length === 0 ? (
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-lg border border-emerald-100/50">
+                                      <LayoutGrid className="w-3 h-3 text-emerald-500" />
+                                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter">모든 게시물</span>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className={`flex items-center gap-2 ${mediaIds.length > 0 ? 'cursor-pointer' : ''}`}
+                                      onClick={async () => {
+                                        if (mediaIds.length === 0) return;
+
+                                        const ids = mediaIds.map(String);
+                                        const from = (arr) => (Array.isArray(arr) ? arr : []).filter(Boolean).filter(mm => ids.includes(String(mm.id)));
+
+                                        // Prefer: loaded mediaList -> saved previews -> current preview stack
+                                        let resolved = [
+                                          ...from(mediaList),
+                                          ...from(item.media_previews),
+                                          ...from(previewMedias),
+                                        ];
+
+                                        // de-dupe by id
+                                        const seen = new Set();
+                                        resolved = resolved.filter(mm => {
+                                          const key = String(mm.id);
+                                          if (seen.has(key)) return false;
+                                          seen.add(key);
+                                          return true;
+                                        });
+
+                                        // If missing and we have customerId, fetch once and retry
+                                        if (resolved.length < Math.min(ids.length, 6) && customerId) {
+                                          try {
+                                            const mediaRes = await loadUserMedia(customerId);
+                                            const fetched = mediaRes?.images || [];
+                                            for (const mm of from(fetched)) {
+                                              const key = String(mm.id);
+                                              if (!seen.has(key)) {
+                                                seen.add(key);
+                                                resolved.push(mm);
+                                              }
+                                            }
+                                          } catch (err) {
+                                          }
+                                        }
+
+                                        if (ids.length === 1) {
+                                          const m = resolved[0] || null;
+                                          if (m) {
+                                            setTargetPostPreview(m);
+                                            setShowTargetPostPreview(true);
+                                            return;
+                                          }
+                                          showNotify('게시물 정보를 찾지 못했습니다. 게시물 변경하기에서 다시 선택해주세요.', 'warning');
+                                          return;
+                                        }
+
+                                        if (resolved.length > 0) {
+                                          setTargetPostsPreview(resolved);
+                                          setShowTargetPostsPreview(true);
+                                          return;
+                                        }
+
+                                        showNotify('게시물 정보를 찾지 못했습니다. 게시물 변경하기에서 다시 선택해주세요.', 'warning');
+                                      }}
+                                    >
+                                      <div className="flex items-center -space-x-2">
+                                        {previewMedias.map((m, idx) => (
+                                          <div
+                                            key={m.id}
+                                            className="w-8 h-8 rounded-lg border-2 border-white overflow-hidden shadow-sm hover:scale-110 transition-transform relative"
+                                            style={{ zIndex: 10 - idx }}
+                                          >
+                                            <img src={m.thumbnail_url || m.media_url} alt="post" className="w-full h-full object-cover" />
+                                          </div>
+                                        ))}
+                                        {hasMore && (
+                                          <div className="w-8 h-8 rounded-lg border-2 border-white bg-gray-900 flex items-center justify-center shadow-sm relative z-0">
+                                            <span className="text-[9px] font-black text-white">+{mediaIds.length - 3}</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="min-w-[96px] px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100/60 text-emerald-700 leading-none whitespace-nowrap text-center">
+                                        <span className="text-[10px] font-black">{mediaIds.length}개 게시물 선택</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                        <div className="mt-3 text-[11px] text-gray-400 bg-gray-50/40 p-2.5 rounded-xl border border-gray-100/50 line-clamp-1 italic max-w-lg">
+                          <span className="font-black text-gray-400 mr-2 not-italic uppercase tracking-tighter">Preview:</span>
+                          {item.type === 'advanced'
+                            ? (item.actions?.find(a => a.type === 'send_text')?.config?.text || item.actions?.find(a => a.type === 'send_text')?.config?.message || '복합 시나리오 실행...')
+                            : (item.builderDmMessage || item.message || '답장 메시지가 설정되지 않았습니다.')}
                         </div>
                       </div>
                     </div>
@@ -5429,10 +6298,18 @@ function Dashboard() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => toggleFlowActive(flow)}
-                        className={`h-9 px-4 rounded-lg font-bold text-xs transition-all ${flow.is_active ? 'border-gray-200 text-gray-500 hover:bg-gray-50' : 'bg-gray-900 text-white hover:bg-gray-800 border-none'}`}
+                        onClick={() => {
+                          if (item.type === 'advanced') toggleFlowActive(item);
+                          else {
+                            const updated = [...keywordReplies];
+                            updated[item.masterIndex].is_active = !updated[item.masterIndex].is_active;
+                            setKeywordReplies(updated);
+                            saveKeywordSettings(updated);
+                          }
+                        }}
+                        className={`h-9 px-4 rounded-lg font-bold text-xs transition-all ${item.is_active ? 'border-gray-200 text-gray-500 hover:bg-gray-50' : 'bg-gray-900 text-white hover:bg-gray-800 border-none'}`}
                       >
-                        {flow.is_active ? '중단' : '활성화'}
+                        {item.is_active ? '중단' : '활성화'}
                       </Button>
 
                       <div className="flex items-center border-l border-gray-100 pl-3 ml-1 gap-1">
@@ -5440,41 +6317,80 @@ function Dashboard() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                          onClick={() => {
-                            const frontendNodes = flow.actions.map((action, idx) => {
-                              const nodeId = (idx === 0) ? 'start' : `node_${Date.now()}_${idx}`;
-                              if (action.type === 'wait' || action.type === 'delay') {
-                                return { id: nodeId, type: 'delay', content: (action.seconds || 1).toString(), buttons: [] };
+                          onClick={async () => {
+                            if (item.type === 'advanced') {
+                              const flow = item;
+                              const frontendNodes = flow.actions.map((action, idx) => {
+                                const nodeId = (idx === 0) ? 'start' : `node_${Date.now()}_${idx}`;
+                                if (action.type === 'wait' || action.type === 'delay') {
+                                  return { id: nodeId, type: 'delay', content: (action.seconds || 1).toString(), buttons: [] };
+                                }
+                                if (action.type === 'add_tag') {
+                                  return { id: nodeId, type: 'tag', tag: action.tag, content: '', buttons: [] };
+                                }
+                                return {
+                                  id: nodeId,
+                                  type: 'message',
+                                  content: action.config?.message || action.config?.text || '',
+                                  buttons: action.config?.buttons || []
+                                };
+                              });
+                              setFlowForm({
+                                id: flow.id,
+                                name: flow.name,
+                                trigger_source: flow.trigger_source || 'all',
+                                keyword: flow.trigger_config?.keyword || '',
+                                match_type: flow.trigger_config?.match_type || 'contains',
+                                nodes: frontendNodes,
+                                is_active: flow.is_active
+                              });
+                              setShowFlowModal(true);
+                            } else {
+                              // Simple automation edit - take to the builder tab
+                              setBuilderEditIndex(item.masterIndex);
+                              
+                              // Load data into builder
+                              const mediaIds = [...new Set([
+                                ...(Array.isArray(item.media_ids) ? item.media_ids : typeof item.media_ids === 'string' ? item.media_ids.split(',') : []),
+                                ...(item.media_id ? [item.media_id] : [])
+                              ].map(String).filter(Boolean))];
+                              
+                              let targetedMedias = (mediaList || []).filter(m => mediaIds.includes(String(m.id)));
+                              let fallbackPreviewMedias = (item.media_previews || []).filter(m => mediaIds.includes(String(m.id)));
+                              let mergedTargeted = targetedMedias.length > 0 ? targetedMedias : fallbackPreviewMedias;
+                              
+                              if (mergedTargeted.length === 0 && mediaIds.length > 0 && customerId) {
+                                try {
+                                  // Fetch fresh if missing
+                                  const mediaRes = await loadUserMedia(customerId);
+                                  const fetched = mediaRes?.images || [];
+                                  const fetchedTargeted = fetched.filter(m => mediaIds.includes(String(m.id)));
+                                  if (fetchedTargeted.length > 0) {
+                                    mergedTargeted = fetchedTargeted;
+                                  } else {
+                                    // Fallback skeleton
+                                    mergedTargeted = mediaIds.map(id => ({ id }));
+                                  }
+                                } catch (err) {
+                                  mergedTargeted = mediaIds.map(id => ({ id }));
+                                }
+                              } else if (mergedTargeted.length === 0 && mediaIds.length > 0) {
+                                mergedTargeted = mediaIds.map(id => ({ id }));
                               }
-                              if (action.type === 'add_tag') {
-                                return { id: nodeId, type: 'tag', tag: action.tag, content: '', buttons: [] };
-                              }
-                              if (action.type === 'send_image') {
-                                return { id: nodeId, type: 'image', url: action.url, content: '', buttons: [] };
-                              }
-                              return {
-                                id: nodeId,
-                                type: 'message',
-                                content: action.content,
-                                buttons: action.buttons?.map((b, bidx) => ({
-                                  id: `btn_${bidx}`,
-                                  label: b.label,
-                                  response: b.payload?.startsWith('TEXT:') ? b.payload.substring(5) : '',
-                                  url: b.url || ''
-                                })) || []
-                              };
-                            });
-
-                            setFlowForm({
-                              id: flow.id,
-                              name: flow.name,
-                              trigger_source: flow.trigger_source || 'all',
-                              keyword: flow.trigger_config?.keyword || '',
-                              match_type: flow.trigger_config?.match_type || 'contains',
-                              nodes: frontendNodes.length > 0 ? frontendNodes : [{ id: 'start', type: 'message', content: '', buttons: [] }],
-                              is_active: flow.is_active
-                            });
-                            setShowFlowModal(true);
+                              
+                              setBuilderTargetPosts(mergedTargeted);
+                              setBuilderKeywords(item.keywords || (item.keyword ? [item.keyword] : []));
+                              setBuilderDmMessage(item.message || '');
+                              
+                              const isFollowCheck = item.interaction_type === 'follow_check' || item.is_follow_check;
+                              setBuilderFollowCheck(!!isFollowCheck);
+                              setBuilderFollowMessage(item.follow_fail_message || item.card_subtitle || '');
+                              setBuilderFollowButtonText(item.button_text || '자세히 보기 🔍');
+                              
+                              // Switch to builder view
+                              setAutomationView('builder');
+                              showNotify('초간편 자동화 편집 모드로 이동했습니다.', 'info');
+                            }
                           }}
                         >
                           <Settings className="w-4 h-4" />
@@ -5482,8 +6398,16 @@ function Dashboard() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          onClick={() => deleteFlow(flow.id)}
+                          className="h-8 w-8 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          onClick={() => {
+                            if (item.type === 'advanced') {
+                              setFlowToDelete(item.id);
+                              setShowFlowDeleteConfirm(true);
+                            } else {
+                              setKeywordToDelete(item);
+                              setShowDeleteConfirm(true);
+                            }
+                          }}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -5494,11 +6418,335 @@ function Dashboard() {
               ))
             )}
           </div>
-        )
-        }
+        )}
       </div>
     );
   };
+  const renderPostPickerModal = () => {
+    if (!showPostPicker) return null;
+
+    const filteredMedia = mediaList || [];
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-300"
+          onClick={() => setShowPostPicker(false)}
+        />
+
+        {/* Modal Content */}
+        <Card className="relative w-full max-w-4xl h-[85vh] bg-white rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.2)] border-none overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+          <CardHeader className="px-8 pt-8 pb-6 border-b border-gray-50 shrink-0">
+            <div className="relative">
+              <div className="text-center w-full">
+                <CardTitle className="text-2xl font-black text-gray-900 tracking-tight">작동할 포스트 선택</CardTitle>
+                <CardDescription className="text-sm font-bold text-gray-500 mt-1">자동화 반응을 설정할 게시물을 피드에서 골라주세요.</CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPostPicker(false)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            {mediaListLoading ? (
+              <div className="flex flex-col items-center justify-center h-full py-20">
+                <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+                <p className="text-gray-500 font-bold">인스타그램 게시물을 불러오는 중입니다...</p>
+              </div>
+            ) : filteredMedia.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-20 text-center">
+                <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+                  <ImageIcon className="w-10 h-10 text-gray-200" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">불러올 게시물이 없습니다</h3>
+                <p className="text-gray-500 mt-2 max-w-xs">최근 업로드한 게시물이 없는 것 같습니다. 인스타그램에 먼저 게시물을 올려주세요.</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {filteredMedia.map((media) => {
+                    const isSelected = builderTargetPosts.some(p => p.id === media.id);
+                    return (
+                      <div
+                        key={media.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setBuilderTargetPosts(builderTargetPosts.filter(p => p.id !== media.id));
+                          } else {
+                            if (builderTargetPosts.length >= MAX_SIMPLE_AUTOMATION_POSTS) {
+                              showNotify(`최대 ${MAX_SIMPLE_AUTOMATION_POSTS}개의 게시물까지만 선택할 수 있습니다.`, 'warning');
+                              return;
+                            }
+                            setBuilderTargetPosts([...builderTargetPosts, media]);
+                          }
+                        }}
+                        className={`relative aspect-square rounded-2xl overflow-hidden cursor-pointer group transition-all duration-300 hover:ring-8 hover:ring-indigo-50 ${isSelected ? 'ring-8 ring-indigo-500 ring-offset-0 scale-[0.98]' : ''
+                          }`}
+                      >
+                        <img
+                          src={media.media_url}
+                          alt="Instagram Post"
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        />
+
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                          <p className="text-white text-[10px] font-bold line-clamp-2 leading-tight">
+                            {media.caption || "내용 없음"}
+                          </p>
+                        </div>
+
+                        {/* Selection Indicator */}
+                        {isSelected && (
+                          <div className="absolute top-3 right-3 w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center shadow-lg animate-in zoom-in-0 duration-300">
+                            <Check className="w-5 h-5 text-white" />
+                          </div>
+                        )}
+
+                        {/* Media Type Icon */}
+                        <div className="absolute top-3 left-3 px-2 py-1 bg-black/30 backdrop-blur-md rounded-lg flex items-center gap-1.5 border border-white/10">
+                          {media.media_type === 'VIDEO' ? (
+                            <Zap className="w-3 h-3 text-white fill-white" />
+                          ) : (
+                            <ImageIcon className="w-3 h-3 text-white" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Load More Button */}
+                {nextCursor && (
+                  <div className="mt-10 flex justify-center pb-10">
+                    <Button
+                      onClick={() => loadUserMedia(customerId, nextCursor)}
+                      disabled={isMoreLoading}
+                      variant="outline"
+                      className="rounded-[1.5rem] px-10 py-6 border-2 border-indigo-100 hover:border-indigo-600 hover:bg-indigo-50 text-indigo-600 font-black shadow-sm transition-all group"
+                    >
+                      {isMoreLoading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                          불러오는 중...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform" />
+                          이전 게시물 더 불러오기
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+
+          <CardFooter className="px-8 py-6 bg-gray-50/50 border-t border-gray-100 flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={() => loadUserMedia(customerId)}
+              className="rounded-xl font-bold text-xs flex items-center gap-2 border-gray-200 bg-white"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${mediaListLoading ? 'animate-spin' : ''}`} />
+              전체 목록 새로고침
+            </Button>
+
+            <div className="flex items-center gap-4">
+              <p className="text-xs font-bold text-gray-500">
+                {builderTargetPosts.length}개의 게시물 선택됨
+              </p>
+              <Button
+                onClick={() => setShowPostPicker(false)}
+                disabled={builderTargetPosts.length === 0}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 font-black shadow-lg shadow-indigo-100"
+              >
+                선택 완료
+              </Button>
+            </div>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  };
+
+  const renderTargetPostPreviewModal = () => {
+    if (!showTargetPostPreview || !targetPostPreview) return null;
+
+    const caption = (targetPostPreview.caption || '').trim();
+    const src = targetPostPreview.thumbnail_url || targetPostPreview.media_url || null;
+
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowTargetPostPreview(false)}
+        />
+
+        <Card className="relative w-full max-w-3xl bg-white rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.25)] border-none overflow-hidden animate-in zoom-in-95 duration-200">
+          <CardHeader className="px-8 pt-8 pb-6 border-b border-gray-50">
+            <div className="relative">
+              <div className="text-center w-full">
+                <CardTitle className="text-2xl font-black text-gray-900 tracking-tight">대상 게시물</CardTitle>
+                <CardDescription className="text-sm font-bold text-gray-500 mt-1">이 자동화가 반응하는 게시물 미리보기입니다.</CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowTargetPostPreview(false)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 aspect-square">
+                {src ? (
+                  <img src={src} alt="Target post" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="w-12 h-12 text-gray-200" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col">
+                {caption ? (
+                  <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 text-sm text-gray-700 font-medium leading-relaxed line-clamp-[10]">
+                    {caption}
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 text-sm text-gray-400 font-bold">
+                    캡션이 없는 게시물입니다.
+                  </div>
+                )}
+
+                <div className="mt-5 flex flex-col gap-2">
+                  <Button
+                    onClick={() => {
+                      setShowTargetPostPreview(false);
+                      setShowPostPicker(true);
+                    }}
+                    className="w-full h-12 rounded-2xl font-black bg-gray-900 text-white hover:bg-gray-800"
+                  >
+                    게시물 변경하기
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  const renderTargetPostsPreviewModal = () => {
+    if (!showTargetPostsPreview) return null;
+
+    const posts = Array.isArray(targetPostsPreview) ? targetPostsPreview : [];
+
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowTargetPostsPreview(false)}
+        />
+
+        <Card className="relative w-full max-w-4xl h-[85vh] bg-white rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.25)] border-none overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <CardHeader className="px-8 pt-8 pb-6 border-b border-gray-50 shrink-0">
+            <div className="relative">
+              <div className="text-center w-full">
+                <CardTitle className="text-2xl font-black text-gray-900 tracking-tight">대상 게시물</CardTitle>
+                <CardDescription className="text-sm font-bold text-gray-500 mt-1">
+                  이 자동화가 반응하는 게시물 목록입니다. 썸네일을 눌러 미리보기를 확인하세요.
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowTargetPostsPreview(false)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            {posts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-20 text-center">
+                <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+                  <ImageIcon className="w-10 h-10 text-gray-200" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">게시물 정보를 불러오지 못했습니다</h3>
+                <p className="text-gray-500 mt-2 max-w-xs">게시물 변경하기를 눌러 다시 선택해주세요.</p>
+                <Button
+                  onClick={() => {
+                    setShowTargetPostsPreview(false);
+                    setShowPostPicker(true);
+                  }}
+                  className="mt-6 h-12 px-6 rounded-2xl font-black bg-gray-900 text-white hover:bg-gray-800"
+                >
+                  게시물 변경하기
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {posts.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setTargetPostPreview(p);
+                        setShowTargetPostPreview(true);
+                      }}
+                      className="relative aspect-square rounded-2xl overflow-hidden cursor-pointer group transition-all duration-300 hover:ring-8 hover:ring-gray-50"
+                    >
+                      <img
+                        src={p.thumbnail_url || p.media_url}
+                        alt="Target post"
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                        <p className="text-white text-[10px] font-bold line-clamp-2 leading-tight">
+                          {p.caption || '내용 없음'}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-8">
+                  <Button
+                    onClick={() => {
+                      setShowTargetPostsPreview(false);
+                      setShowPostPicker(true);
+                    }}
+                    className="w-full h-12 rounded-2xl font-black bg-gray-900 text-white hover:bg-gray-800"
+                  >
+                    게시물 변경하기
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
   const renderScenarioModal = () => {
     if (!showScenarioModal) return null;
 
@@ -5614,6 +6862,12 @@ function Dashboard() {
         return;
       }
 
+      // [Security Hardening] AI Message Gating
+      if (type === 'ai_message' && isAiPremiumLocked) {
+        showPremiumLockToast('AI 메시지 기능은 AI 요금제 전용 기능입니다.');
+        return;
+      }
+
       // Specific limit for images (Max 3)
       if (type === 'image') {
         const imageCount = flowForm.nodes.filter(n => n.type === 'image').length;
@@ -5693,11 +6947,12 @@ function Dashboard() {
 
     return (
       <div
-        className="fixed inset-0 z-[1110] overflow-y-auto custom-scrollbar bg-black/60 backdrop-blur-md"
+        className="fixed inset-0 z-[1110] flex items-center justify-center bg-black/60 backdrop-blur-md p-2"
         onClick={(e) => e.target === e.currentTarget && setShowFlowModal(false)}
       >
-        <div className="relative min-h-full flex justify-center p-4 py-12 pointer-events-none">
-          <Card className="w-full max-w-2xl flex flex-col shadow-2xl animate-in zoom-in-95 duration-300 border-none overflow-hidden bg-white shadow-purple-500/10 border border-gray-100 h-fit max-h-[92vh] my-auto pointer-events-auto">
+        <Card className="w-full max-w-5xl flex flex-row shadow-2xl animate-in zoom-in-95 duration-300 border-none overflow-hidden bg-white shadow-purple-500/10 border border-gray-100 h-[90vh] pointer-events-auto relative">
+          {/* Left Column: Editor */}
+          <div className="flex-1 flex flex-col h-full min-w-0 border-r border-gray-100">
             {/* Sticky Header */}
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 pt-8 px-10 border-b border-gray-100 bg-white z-10">
               <div className="flex items-center gap-4">
@@ -5725,7 +6980,6 @@ function Dashboard() {
               <div className="space-y-6">
                 <div className="group relative">
                   <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="w-4 h-4 text-indigo-600" />
                     <label className="text-[11px] font-black text-indigo-600 uppercase tracking-widest">플로우 정보 설정</label>
                   </div>
                   <div className="relative">
@@ -5742,9 +6996,6 @@ function Dashboard() {
 
                 {flowForm.trigger_source === 'story_mention' ? (
                   <div className="flex items-center gap-4 p-6 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100/50 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="p-3 bg-white rounded-xl shadow-sm border border-indigo-100 flex-shrink-0">
-                      <Zap className="w-6 h-6 text-indigo-600" />
-                    </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-lg font-black text-gray-900 tracking-tight leading-tight mb-1">
                         스토리 멘션 즉시 대응
@@ -5781,12 +7032,19 @@ function Dashboard() {
                         <Target className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <select
                           value={flowForm.match_type}
-                          onChange={(e) => setFlowForm({ ...flowForm, match_type: e.target.value })}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'ai_semantic' && isAiPremiumLocked) {
+                              showPremiumLockToast('AI 의미 매칭은 AI 요금제 전용 기능입니다.');
+                              return;
+                            }
+                            setFlowForm({ ...flowForm, match_type: val });
+                          }}
                           className="w-full pl-11 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all font-bold text-gray-700 text-sm appearance-none cursor-pointer"
                         >
                           <option value="contains">포함</option>
                           <option value="exact">일치</option>
-                          <option value="ai_semantic">AI 시맨틱</option>
+                          <option value="ai_semantic">AI 의미 매칭</option>
                         </select>
                       </div>
                     </div>
@@ -6022,9 +7280,12 @@ function Dashboard() {
                   </button>
                   <button
                     onClick={() => addNode('ai_message')}
-                    className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-gray-100 hover:border-indigo-500 hover:shadow-lg transition-all"
+                    className={`flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border transition-all ${isAiPremiumLocked ? 'border-gray-100 opacity-60 grayscale' : 'border-gray-100 hover:border-indigo-500 hover:shadow-lg'}`}
                   >
-                    <Sparkles className="w-5 h-5 text-indigo-600" />
+                    <div className="relative">
+                      <Sparkles className={`w-5 h-5 ${isAiPremiumLocked ? 'text-gray-400' : 'text-indigo-600'}`} />
+                      {isAiPremiumLocked && <Lock className="absolute -top-1 -right-1 w-2.5 h-2.5 text-gray-500" />}
+                    </div>
                     <span className="text-[10px] font-black text-gray-400">AI 메시지</span>
                   </button>
                   <button
@@ -6111,8 +7372,29 @@ function Dashboard() {
                 </Button>
               </div>
             </CardFooter>
-          </Card>
-        </div>
+          </div>
+
+          {/* Right Column: Premium Simulator Preview */}
+          <div className="hidden lg:flex w-[400px] h-full bg-gray-50/50 flex-col items-center justify-start pt-12 px-8 border-l border-gray-100">
+            {(() => {
+              // Find the first message node to preview
+              const firstMsgNode = flowForm.nodes.find(n => n.type === 'message') || flowForm.nodes[0];
+              const firstImgNode = flowForm.nodes.find(n => n.type === 'image');
+
+              return renderMobileSimulator(
+                firstMsgNode?.content || '',
+                firstMsgNode?.buttons || [],
+                firstImgNode?.url || null
+              );
+            })()}
+
+            <div className="mt-4 p-4 bg-white rounded-2xl border border-gray-200/50 shadow-sm">
+              <p className="text-[10px] text-gray-500 font-bold leading-tight text-center">
+                메시지 버튼과 이미지가 실제 인스타그램 DM에서 어떻게 보일지 실시간으로 확인하세요.
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
     );
   };
@@ -6153,7 +7435,7 @@ function Dashboard() {
                     <div className="p-5 bg-white rounded-3xl shadow-sm mb-4">
                       <CheckCircle2 className="w-10 h-10 text-emerald-500" />
                     </div>
-                    <p className="text-xl font-black text-emerald-950 mb-1">{safeString(aiKnowledgeBaseFilename)}</p>
+                    <p className="text-xl font-black text-emerald-950 mb-1">{getDisplayFilename(aiKnowledgeBaseFilename, aiKnowledgeBaseUrl)}</p>
                     <p className="text-sm text-emerald-600 font-bold mb-8 uppercase tracking-widest">Active Knowledge Base</p>
 
                     <div className="flex flex-col w-full gap-3">
@@ -6222,14 +7504,14 @@ function Dashboard() {
   };
 
   /* New Preset Selector Modal */
-  const PresetSelectorModal = ({ 
-    isOpen, 
-    onClose, 
-    onSelect, 
-    initialSelected = [], 
+  const PresetSelectorModal = ({
+    isOpen,
+    onClose,
+    onSelect,
+    initialSelected = [],
     presetData = REPLY_PRESETS,
     title = "추천 답글 선택",
-    description = "원하는 문구들을 체크하여 선택해주세요." 
+    description = "원하는 문구들을 체크하여 선택해주세요."
   }) => {
     const [selectedPresets, setSelectedPresets] = useState([]);
 
@@ -6414,7 +7696,7 @@ function Dashboard() {
                     onError={(e) => {
                       e.target.style.display = 'none';
                       if (e.target.nextElementSibling) return; // Prevent duplicate fallbacks
-                      
+
                       const fallback = document.createElement('div');
                       fallback.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#f3f4f6;';
                       fallback.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg><span style="font-size:9px;color:#9ca3af;font-weight:600;text-align:center;">미리보기 불가</span>';
@@ -6493,7 +7775,7 @@ function Dashboard() {
             {filteredReplies.map((reply) => {
               const masterIndex = keywordReplies.indexOf(reply);
               if (masterIndex === -1) return null;
-              const replyKey = masterIndex; 
+              const replyKey = masterIndex;
               const activeTab = activeTabMap[replyKey] || 'private';
 
               return (
@@ -6662,7 +7944,7 @@ function Dashboard() {
                                 </p>
                               </div>
                             )}
-                            
+
                             <div className="space-y-5 animate-in slide-in-from-top-2 duration-300">
                               {/* Card Image Upload */}
                               <div className="space-y-3">
@@ -6674,7 +7956,7 @@ function Dashboard() {
                                   {reply.card_image_url ? (
                                     <div className="relative w-24 h-24 rounded-2xl overflow-hidden border border-indigo-100 shadow-sm transition-transform hover:scale-105">
                                       <img src={getImageUrl(reply.card_image_url)} alt="Card Cover" className="w-full h-full object-cover" />
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           const updated = [...keywordReplies];
                                           updated[masterIndex].card_image_url = null;
@@ -6696,15 +7978,15 @@ function Dashboard() {
                                       <span className="text-[10px] font-black uppercase tracking-tighter">이미지 추가</span>
                                     </button>
                                   )}
-                                  <input 
+                                  <input
                                     id={`card-image-upload-${masterIndex}`}
-                                    type="file" 
-                                    className="hidden" 
+                                    type="file"
+                                    className="hidden"
                                     accept="image/*"
                                     onChange={async (e) => {
                                       const file = e.target.files[0];
                                       if (!file) return;
-                                      
+
                                       const formData = new FormData();
                                       formData.append('file', file);
                                       try {
@@ -6723,7 +8005,7 @@ function Dashboard() {
                                   />
                                   <div className="flex-1">
                                     <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
-                                      인스타그램 카드 상단에 노출될 이미지를 선택하세요.<br/> 
+                                      인스타그램 카드 상단에 노출될 이미지를 선택하세요.<br />
                                       <span className="text-indigo-500 uppercase font-black tracking-tighter">추천 비율: 1.91:1 또는 1:1</span>
                                     </p>
                                   </div>
@@ -6741,89 +8023,89 @@ function Dashboard() {
                                     value={reply.button_text || '자세히 보기 🔍'}
                                     onChange={(e) => {
                                       const updated = [...keywordReplies];
-                                    updated[masterIndex].button_text = e.target.value;
-                                    setKeywordReplies(updated);
-                                  }}
-                                  className="w-full px-4 h-12 bg-white border border-indigo-100 rounded-xl text-xs font-semibold focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/5 transition-all"
-                                  placeholder="버튼에 표시될 문구를 입력하세요... (예: 신청하기)"
-                                />
-                              </div>
-
-                              <div className="space-y-4">
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 px-1">
-                                    <Type className="w-3.5 h-3.5 text-indigo-400" />
-                                    <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">첫 카드 제목 (Bold)</label>
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={reply.card_title || ''}
-                                    onChange={(e) => {
-                                      const updated = [...keywordReplies];
-                                      updated[masterIndex].card_title = e.target.value;
+                                      updated[masterIndex].button_text = e.target.value;
                                       setKeywordReplies(updated);
                                     }}
                                     className="w-full px-4 h-12 bg-white border border-indigo-100 rounded-xl text-xs font-semibold focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/5 transition-all"
-                                    placeholder="카드의 제목을 입력하세요... (최대 80자)"
+                                    placeholder="버튼에 표시될 문구를 입력하세요... (예: 신청하기)"
                                   />
                                 </div>
 
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 px-1">
-                                    <AlignLeft className="w-3.5 h-3.5 text-indigo-400" />
-                                    <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">첫 카드 부제목 (Gray)</label>
+                                <div className="space-y-4">
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 px-1">
+                                      <Type className="w-3.5 h-3.5 text-indigo-400" />
+                                      <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">첫 카드 제목 (Bold)</label>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={reply.card_title || ''}
+                                      onChange={(e) => {
+                                        const updated = [...keywordReplies];
+                                        updated[masterIndex].card_title = e.target.value;
+                                        setKeywordReplies(updated);
+                                      }}
+                                      className="w-full px-4 h-12 bg-white border border-indigo-100 rounded-xl text-xs font-semibold focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/5 transition-all"
+                                      placeholder="카드의 제목을 입력하세요... (최대 80자)"
+                                    />
                                   </div>
-                                  <input
-                                    type="text"
-                                    value={reply.card_subtitle || ''}
-                                    onChange={(e) => {
-                                      const updated = [...keywordReplies];
-                                      updated[masterIndex].card_subtitle = e.target.value;
-                                      setKeywordReplies(updated);
-                                    }}
-                                    className="w-full px-4 h-12 bg-white border border-indigo-100 rounded-xl text-xs font-semibold focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/5 transition-all"
-                                    placeholder="카드 하단에 표시될 짧은 설명을 입력하세요..."
-                                  />
-                                </div>
-                                
-                                {/* Luxury Card Preview */}
-                                <div className="mt-6 p-6 bg-[#0f0f0f] rounded-[2.5rem] shadow-2xl relative overflow-hidden group/preview border border-white/5 mx-auto max-w-sm">
-                                  <div className="bg-[#1a1a1a] rounded-3xl overflow-hidden border border-white/10 ring-1 ring-white/5 flex flex-col">
-                                    {/* Card Preview Image */}
-                                    <div className="aspect-[1.91/1] w-full bg-gray-800/50 relative overflow-hidden">
-                                      {reply.card_image_url ? (
-                                        <img src={getImageUrl(reply.card_image_url)} alt="Preview" className="w-full h-full object-cover" />
-                                      ) : (
-                                        <div className="w-full h-full flex items-center justify-center">
-                                          <ImageIcon className="w-8 h-8 text-white/10" />
+
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2 px-1">
+                                      <AlignLeft className="w-3.5 h-3.5 text-indigo-400" />
+                                      <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">첫 카드 부제목 (Gray)</label>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={reply.card_subtitle || ''}
+                                      onChange={(e) => {
+                                        const updated = [...keywordReplies];
+                                        updated[masterIndex].card_subtitle = e.target.value;
+                                        setKeywordReplies(updated);
+                                      }}
+                                      className="w-full px-4 h-12 bg-white border border-indigo-100 rounded-xl text-xs font-semibold focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/5 transition-all"
+                                      placeholder="카드 하단에 표시될 짧은 설명을 입력하세요..."
+                                    />
+                                  </div>
+
+                                  {/* Luxury Card Preview */}
+                                  <div className="mt-6 p-6 bg-[#0f0f0f] rounded-[2.5rem] shadow-2xl relative overflow-hidden group/preview border border-white/5 mx-auto max-w-sm">
+                                    <div className="bg-[#1a1a1a] rounded-3xl overflow-hidden border border-white/10 ring-1 ring-white/5 flex flex-col">
+                                      {/* Card Preview Image */}
+                                      <div className="aspect-[1.91/1] w-full bg-gray-800/50 relative overflow-hidden">
+                                        {reply.card_image_url ? (
+                                          <img src={getImageUrl(reply.card_image_url)} alt="Preview" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center">
+                                            <ImageIcon className="w-8 h-8 text-white/10" />
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Card Preview Text Content */}
+                                      <div className="p-4 space-y-1.5 bg-gradient-to-b from-[#1a1a1a] to-[#161616]">
+                                        <p className="text-[13px] text-white font-black leading-snug tracking-tight">
+                                          {reply.card_title || '첫 카드 제목을 입력하세요'}
+                                        </p>
+                                        <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
+                                          {reply.card_subtitle || '카드 부제목을 보강해주세요'}
+                                        </p>
+                                      </div>
+
+                                      {/* Card Preview Button */}
+                                      <div className="px-4 pb-4 mt-auto">
+                                        <div className="w-full py-2.5 bg-white/10 rounded-xl text-center border border-white/10 group-hover/preview:bg-white/20 transition-all cursor-default">
+                                          <span className="text-[11px] font-black text-white tracking-tight">{reply.button_text || '자세히 보기 🔍'}</span>
                                         </div>
-                                      )}
-                                    </div>
-                                    
-                                    {/* Card Preview Text Content */}
-                                    <div className="p-4 space-y-1.5 bg-gradient-to-b from-[#1a1a1a] to-[#161616]">
-                                      <p className="text-[13px] text-white font-black leading-snug tracking-tight">
-                                        {reply.card_title || '첫 카드 제목을 입력하세요'}
-                                      </p>
-                                      <p className="text-[11px] text-gray-400 font-medium leading-relaxed">
-                                        {reply.card_subtitle || '카드 부제목을 보강해주세요'}
-                                      </p>
-                                    </div>
-
-                                    {/* Card Preview Button */}
-                                    <div className="px-4 pb-4 mt-auto">
-                                      <div className="w-full py-2.5 bg-white/10 rounded-xl text-center border border-white/10 group-hover/preview:bg-white/20 transition-all cursor-default">
-                                        <span className="text-[11px] font-black text-white tracking-tight">{reply.button_text || '자세히 보기 🔍'}</span>
                                       </div>
                                     </div>
+
+                                    {/* Glass reflection effect */}
+                                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-white/0 via-white/[0.03] to-white/0 translate-y-[100%] group-hover/preview:translate-y-[-100%] transition-transform duration-1000" />
                                   </div>
-                                  
-                                  {/* Glass reflection effect */}
-                                  <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-white/0 via-white/[0.03] to-white/0 translate-y-[100%] group-hover/preview:translate-y-[-100%] transition-transform duration-1000" />
                                 </div>
                               </div>
                             </div>
-                          </div>
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 px-1">
@@ -6872,33 +8154,33 @@ function Dashboard() {
                               {((reply.image_urls || []).concat(reply.image_url ? [reply.image_url] : []))
                                 .filter((url, idx, self) => url && self.indexOf(url) === idx)
                                 .map((url, imgIdx) => (
-                                <div key={imgIdx} className="relative group overflow-hidden rounded-[1.5rem] border-2 border-indigo-100 shadow-lg bg-gray-50 w-32 h-32 transform hover:scale-[1.05] transition-all duration-500">
-                                  <img
-                                    src={getImageUrl(url)}
-                                    alt={`Attached ${imgIdx + 1}`}
-                                    className="w-full h-full object-cover"
-                                  />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                                    <button
-                                      onClick={async () => {
-                                        const updated = [...keywordReplies];
-                                        if (updated[masterIndex].image_urls) {
-                                          updated[masterIndex].image_urls = updated[masterIndex].image_urls.filter(u => u !== url);
-                                        }
-                                        if (updated[masterIndex].image_url === url) {
-                                          updated[masterIndex].image_url = null;
-                                        }
-                                        setKeywordReplies(updated);
-                                        await saveKeywordSettings(updated);
-                                      }}
-                                      className="p-2.5 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all shadow-lg active:scale-90"
-                                      title="이미지 제거"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                  <div key={imgIdx} className="relative group overflow-hidden rounded-[1.5rem] border-2 border-indigo-100 shadow-lg bg-gray-50 w-32 h-32 transform hover:scale-[1.05] transition-all duration-500">
+                                    <img
+                                      src={getImageUrl(url)}
+                                      alt={`Attached ${imgIdx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                                      <button
+                                        onClick={async () => {
+                                          const updated = [...keywordReplies];
+                                          if (updated[masterIndex].image_urls) {
+                                            updated[masterIndex].image_urls = updated[masterIndex].image_urls.filter(u => u !== url);
+                                          }
+                                          if (updated[masterIndex].image_url === url) {
+                                            updated[masterIndex].image_url = null;
+                                          }
+                                          setKeywordReplies(updated);
+                                          await saveKeywordSettings(updated);
+                                        }}
+                                        className="p-2.5 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all shadow-lg active:scale-90"
+                                        title="이미지 제거"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                ))}
 
                               {/* Upload Button */}
                               {(() => {
@@ -6906,31 +8188,31 @@ function Dashboard() {
                                 const uniqueImages = [...new Set(allImages)].filter(Boolean);
                                 return uniqueImages.length < 3;
                               })() && (
-                                <div className="w-32 h-32 relative">
-                                  <input
-                                    type="file"
-                                    className="hidden"
-                                    id={`keyword-img-upload-${masterIndex}`}
-                                    accept="image/*"
-                                    onChange={(e) => handleKeywordImageUpload(e, masterIndex)}
-                                  />
-                                  <label
-                                    htmlFor={`keyword-img-upload-${masterIndex}`}
-                                    className={`flex flex-col items-center justify-center w-full h-full border-2 border-dashed border-gray-200 rounded-[1.5rem] bg-gray-50/50 hover:bg-indigo-50/50 hover:border-indigo-300 transition-all cursor-pointer group ${keywordImageUploading[masterIndex] ? 'opacity-50 pointer-events-none' : ''}`}
-                                  >
-                                    {keywordImageUploading[masterIndex] ? (
-                                      <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
-                                    ) : (
-                                      <>
-                                        <div className="p-2.5 bg-white rounded-lg shadow-sm border border-gray-100 mb-1 group-hover:scale-110 transition-transform">
-                                          <Plus className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" />
-                                        </div>
-                                        <p className="text-[10px] font-black text-gray-400 group-hover:text-indigo-900 tracking-tighter text-center">사진 추가</p>
-                                      </>
-                                    )}
-                                  </label>
-                                </div>
-                              )}
+                                  <div className="w-32 h-32 relative">
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      id={`keyword-img-upload-${masterIndex}`}
+                                      accept="image/*"
+                                      onChange={(e) => handleKeywordImageUpload(e, masterIndex)}
+                                    />
+                                    <label
+                                      htmlFor={`keyword-img-upload-${masterIndex}`}
+                                      className={`flex flex-col items-center justify-center w-full h-full border-2 border-dashed border-gray-200 rounded-[1.5rem] bg-gray-50/50 hover:bg-indigo-50/50 hover:border-indigo-300 transition-all cursor-pointer group ${keywordImageUploading[masterIndex] ? 'opacity-50 pointer-events-none' : ''}`}
+                                    >
+                                      {keywordImageUploading[masterIndex] ? (
+                                        <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <div className="p-2.5 bg-white rounded-lg shadow-sm border border-gray-100 mb-1 group-hover:scale-110 transition-transform">
+                                            <Plus className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" />
+                                          </div>
+                                          <p className="text-[10px] font-black text-gray-400 group-hover:text-indigo-900 tracking-tighter text-center">사진 추가</p>
+                                        </>
+                                      )}
+                                    </label>
+                                  </div>
+                                )}
                             </div>
                           </div>
                         </div>
@@ -7067,90 +8349,55 @@ function Dashboard() {
   // Render AI Settings
   const renderAiSettings = () => (
     <>
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div className="w-full flex flex-col items-center justify-center text-center mb-12">
-          <h1 className="text-3xl lg:text-4xl font-black text-gray-900 tracking-tight mb-3 text-center">
-            AI 센터
-          </h1>
-          <p className="text-gray-500 font-medium max-w-2xl text-center px-4">인스타그램 고객에게 응답할 AI 어시스턴트의 페르소나와 동작 규칙을 설정합니다.</p>
+      <div className="mb-8 w-full flex flex-col gap-5">
+        <div className="w-full flex justify-center">
+          <div className="flex flex-col space-y-2 text-center">
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-none">
+              AI 센터
+            </h1>
+            <p className="text-gray-400 font-bold text-sm">인스타그램 고객에게 응답할 AI 어시스턴트의 페르소나와 동작 규칙을 설정합니다</p>
+          </div>
         </div>
 
+        {/* Master Toggle in end area below title */}
+        <div className="w-full flex justify-end">
+          <div className="w-full lg:w-auto lg:min-w-[360px]">
+            <Card className="border border-gray-100 shadow-sm rounded-2xl bg-white overflow-hidden hover:shadow-md w-full">
+              <div className="p-4 px-5 flex items-center justify-between gap-5">
+                <div>
+                  <h3 className="text-base font-black text-gray-900">AI 자동 응답 메인 스위치</h3>
+                  <p className="text-xs text-gray-500 font-medium">{isAiActive ? '현재 고객 응대가 활성화되어 있습니다.' : 'AI가 휴식 중입니다.'}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const newState = !isAiActive;
+                    setIsAiActive(newState);
+                    setTimeout(() => saveAiSettings(newState), 0);
+                  }}
+                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none shadow-inner ${isAiActive ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                >
+                  <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform ${isAiActive ? 'translate-x-[1.7rem]' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            </Card>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Configuration */}
-        <div className="lg:col-span-2 space-y-8">
-          <Card className="border-none shadow-2xl overflow-hidden rounded-3xl bg-white/80 backdrop-blur-xl">
-            <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 p-8 border-b border-indigo-100/50">
-              <div className="grid grid-cols-1 lg:grid-cols-[120px_1fr_180px] items-center gap-6">
-                  {/* Left Spacer - Smaller than button side to nudge center towards start */}
-                  <div className="hidden lg:block"></div>
-
-                  <div className="text-center flex-1 min-w-0">
-                    <CardTitle className="text-2xl font-black text-indigo-950 truncate">AI 페르소나 (시스템 프롬프트)</CardTitle>
-                    <p className="text-sm text-indigo-400 font-bold text-center">AI가 고객과 어떤 어투로 대화할지 상세하게 알려주세요.</p>
-                  </div>
-
-                  <div className="flex justify-center lg:justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowAiKbModal(true)}
-                      className="bg-white border-indigo-100 text-indigo-600 hover:bg-indigo-50 font-bold gap-2 rounded-xl h-12 px-5 shadow-sm transition-all active:scale-95"
-                    >
-                      <FileText className="w-5 h-5" />
-                      파일 설정
-                      {aiKnowledgeBaseUrl && <Badge className="ml-2 bg-emerald-500 text-[10px] h-5 min-w-5 flex items-center justify-center p-0 px-1 border-none">ON</Badge>}
-                    </Button>
-                  </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-8">
-              <textarea
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="예: 당신은 '스테이무드 스테이'의 공식 AI 어시스턴트입니다. 항상 친절하고 정중한 어투를 사용하며, 예약 문의에 답변하고 주변 맛집을 추천해주세요."
-                className="w-full h-96 p-8 rounded-3xl border-2 border-gray-100 focus:border-indigo-400 focus:ring-0 transition-all text-gray-800 text-xl leading-relaxed shadow-inner resize-none bg-gray-50/30"
-                disabled={aiPromptLoading || aiPromptSaving}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Operational Settings */}
-        <div className="space-y-8">
-          {/* Master Toggle Card */}
-          <Card className="border-none shadow-xl rounded-3xl bg-white overflow-hidden transform transition-all hover:scale-[1.01]">
-            <div className="p-6 flex items-center justify-between bg-gradient-to-r from-indigo-50/50 to-purple-50/50">
-              <div className="flex items-center gap-3">
-                <span className={`text-base font-black ${isAiActive ? 'text-indigo-950' : 'text-gray-400'}`}>
-                  AI 자동 응답 {isAiActive ? '활성화됨' : '비활성'}
-                </span>
-              </div>
-              <button
-                onClick={() => {
-                  const newState = !isAiActive;
-                  setIsAiActive(newState);
-                  setTimeout(() => saveAiSettings(newState), 0);
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isAiActive ? 'bg-indigo-600' : 'bg-gray-200'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${isAiActive ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+      {/* Time Settings row */}
+      <div className="mb-8 w-full">
+        <Card className="border-none shadow-xl rounded-3xl bg-white">
+          <CardHeader className="px-6 py-3 border-b border-gray-50">
+            <div className="flex items-center justify-center gap-3 text-center">
+              <Clock className="w-6 h-6 text-purple-600" />
+              <CardTitle className="text-lg font-black text-gray-900">운영 시간 설정</CardTitle>
             </div>
-          </Card>
+          </CardHeader>
+          <CardContent className="px-6 pt-2 pb-5 space-y-4">
+            <p className="text-sm text-gray-500 font-medium">인공지능이 자동으로 응답을 처리할 시간대를 지정합니다.</p>
 
-          <Card className="border-none shadow-xl rounded-3xl bg-white">
-            <CardHeader className="p-6 border-b border-gray-50">
-              <div className="flex items-center gap-3">
-                <Clock className="w-6 h-6 text-purple-600" />
-                <CardTitle className="text-lg font-black text-gray-900">운영 시간 설정</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              <p className="text-sm text-gray-500 font-medium">인공지능이 자동으로 응답을 처리할 시간대를 지정합니다.</p>
-
-              <div className="space-y-6">
-                <div className="flex flex-wrap gap-2">
+            <div className="space-y-0 flex flex-col gap-4">
+              <div className="flex flex-wrap justify-center items-center gap-3">
                   {[
                     { label: '🕒 24시간', start: '00:00', end: '23:59' },
                     { label: '🏢 업무 시간 (09~18)', start: '09:00', end: '18:00' },
@@ -7163,22 +8410,23 @@ function Dashboard() {
                         setAiOperateStart(preset.start);
                         setAiOperateEnd(preset.end);
                       }}
-                      className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-[10px] font-black border border-purple-100/50 transition-all active:scale-95 shadow-sm"
+                      className="px-4 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-black border border-purple-100/50 transition-all active:scale-95 shadow-sm"
                     >
                       {preset.label}
                     </button>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-end gap-4 lg:gap-6">
+                <div className="flex items-center gap-4 lg:gap-6 flex-1">
+                  <div className="space-y-2 flex-1">
                     <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">시작 시간</label>
                     <div className="relative">
                       <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                       <select
                         value={aiOperateStart}
                         onChange={(e) => setAiOperateStart(e.target.value)}
-                        className="w-full bg-gray-50 border-2 border-gray-50 rounded-2xl pl-11 p-4 text-sm focus:ring-2 focus:ring-purple-400 focus:bg-white transition-all font-bold text-gray-700 appearance-none cursor-pointer"
+                        className="w-full bg-gray-50 border-2 border-gray-50 rounded-2xl pl-11 h-12 pr-4 text-sm focus:ring-2 focus:ring-purple-400 focus:bg-white transition-all font-bold text-gray-700 appearance-none cursor-pointer"
                       >
                         {Array.from({ length: 48 }).map((_, i) => {
                           const h = Math.floor(i / 2).toString().padStart(2, '0');
@@ -7189,14 +8437,14 @@ function Dashboard() {
                       </select>
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 flex-1">
                     <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">종료 시간</label>
                     <div className="relative">
                       <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                       <select
                         value={aiOperateEnd}
                         onChange={(e) => setAiOperateEnd(e.target.value)}
-                        className="w-full bg-gray-50 border-2 border-gray-50 rounded-2xl pl-11 p-4 text-sm focus:ring-2 focus:ring-purple-400 focus:bg-white transition-all font-bold text-gray-700 appearance-none cursor-pointer"
+                        className="w-full bg-gray-50 border-2 border-gray-50 rounded-2xl pl-11 h-12 pr-4 text-sm focus:ring-2 focus:ring-purple-400 focus:bg-white transition-all font-bold text-gray-700 appearance-none cursor-pointer"
                       >
                         {Array.from({ length: 48 }).map((_, i) => {
                           const h = Math.floor(i / 2).toString().padStart(2, '0');
@@ -7213,63 +8461,173 @@ function Dashboard() {
                 <Button
                   onClick={() => saveAiSettings()}
                   disabled={aiPromptSaving}
-                  className="w-full bg-gradient-to-br from-indigo-600 to-purple-700 hover:opacity-90 text-white font-black h-12 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 border-none"
+                  className="w-full lg:w-auto lg:min-w-[180px] lg:self-end bg-gradient-to-br from-indigo-600 to-purple-700 hover:opacity-90 text-white font-black h-12 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 border-none"
                 >
                   {aiPromptSaving ? '저장 중...' : '시간 설정 저장'}
                 </Button>
               </div>
 
-              <div className="p-4 rounded-2xl bg-purple-50 border border-purple-100">
+              <div className="p-3 rounded-2xl bg-purple-50 border border-purple-100">
                 <p className="text-xs text-purple-700 leading-relaxed">
                   <span className="font-black">TIP:</span> 밤늦은 시간이나 주말 등 직접 응답이 어려운 시간대에만 AI를 활성화하여 CS 부담을 덜 수 있습니다.
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        {/* Left: Persona Prompt */}
+        <Card className="border border-gray-100 shadow-sm rounded-[2rem] bg-white flex flex-col h-[600px]">
+          <CardHeader className="bg-gradient-to-r from-indigo-50/50 to-white/50 p-6 border-b border-gray-50 flex flex-row items-center justify-between shadow-sm">
+            <div>
+              <CardTitle className="text-xl font-black text-gray-900">
+                AI 페르소나 (프롬프트)
+              </CardTitle>
+              <p className="text-xs text-gray-500 font-medium mt-1">AI가 어떤 성격으로 대화할지 상세하게 알려주세요.</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAiKbModal(true)}
+              className="bg-white border-indigo-100 text-indigo-600 hover:bg-indigo-50 font-bold rounded-xl h-9"
+            >
+              <FileText className="w-4 h-4 mr-1.5" />
+              파일 첨부
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0 flex-1 flex flex-col relative">
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="예: 당신은 '스테이무드 스테이'의 공식 매니저입니다. 항상 다정하고 친절하게 대답하며, 예약 방법과 주변 맛집을 추천해주세요."
+              className="w-full flex-1 p-6 border-0 focus:ring-0 resize-none text-gray-800 text-base leading-relaxed bg-transparent"
+              disabled={aiPromptLoading || aiPromptSaving}
+            />
+          </CardContent>
+        </Card>
 
-          <Card className="border-none shadow-xl rounded-3xl bg-gradient-to-br from-indigo-600 to-purple-700 text-white overflow-hidden relative">
-            <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-            <CardHeader className="p-8 pb-4">
-              <CardTitle className="text-xl font-black">설정 완료</CardTitle>
-            </CardHeader>
-            <CardContent className="p-8 pt-0 space-y-6">
-              <p className="text-sm text-indigo-100 font-medium leading-relaxed">
-                변경하신 페르소나와 운영 시간 설정은 저장 즉시 모든 인스타그램 계정에 반영됩니다.
+        {/* Right: AI Simulator Mockup */}
+        <Card className="border-4 border-gray-100 shadow-sm bg-gray-50 rounded-[2rem] flex flex-col h-[600px] overflow-hidden">
+          <div className="bg-white px-4 py-3 border-b border-gray-200 flex items-center justify-center shadow-sm relative z-10">
+            <div className="text-center">
+              <h3 className="text-sm font-black text-gray-900 leading-tight">
+                {builderEditIndex !== null ? '자동화 수정하기' : '새 자동화 만들기'}
+              </h3>
+              <p className="text-[10px] font-bold text-emerald-500">
+                {builderEditIndex !== null ? '기존 자동화 설정을 변경합니다' : '새로운 게시물 자동 응답 플로우를 생성합니다'}
               </p>
-              <Button
-                className="w-full bg-white text-indigo-700 hover:bg-indigo-50 font-black h-14 rounded-2xl text-lg shadow-xl transition-all active:scale-95"
-                onClick={saveAiSettings}
-                disabled={aiPromptLoading || aiPromptSaving}
-              >
-                {aiPromptSaving ? (
-                  <>
-                    <Loader2 className="w-5 h-5 mr-3 animate-spin" />
-                    저장하는 중...
-                  </>
-                ) : (
-                  '변경사항 저장하기'
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 flex flex-col">
+            <div className="text-center my-4">
+              <span className="text-[10px] font-bold text-gray-400 bg-gray-200/50 px-2 py-1 rounded-full">{new Date().toLocaleDateString('ko-KR')}</span>
+            </div>
+
+            {/* Mock User Message */}
+            <div className="flex justify-end">
+              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[80%] text-sm shadow-sm">
+                안녕하세요! 금주 주말 예약 가능할까요? 예약 방법 좀 알려주세요.
+              </div>
+            </div>
+
+            {/* Mock AI Response */}
+            <div className="flex justify-start items-end gap-2">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0 shadow-sm">
+                <Bot className="w-3 h-3 text-white" />
+              </div>
+              <div className="bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[80%] text-sm shadow-sm space-y-2">
+                <p>안녕하세요! 🌟 문의주셔서 감사합니다. 현재 설정하신 프롬프트가 여기에 적용되어 응답이 생성됩니다.</p>
+                <div className="bg-indigo-50 p-2 rounded-lg text-xs text-indigo-700 font-medium">
+                  실제 고객 응대 전, 설정을 저장하고 이 프리뷰 영역 또는 본인 계정으로 DM을 보내 테스트해보세요.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-3 bg-white border-t border-gray-200">
+            <div className="flex items-center gap-2 bg-gray-100 rounded-full pr-1 pl-4 py-1">
+              <input type="text" placeholder="고객을 가장하여 메시지를 보내보세요..." className="flex-1 bg-transparent border-0 focus:ring-0 text-sm h-8" disabled />
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shadow-md">
+                <Send className="w-4 h-4 text-white -ml-0.5 mt-0.5" />
+              </div>
+            </div>
+          </div>
+        </Card>
       </div>
 
-      <div className="p-8 bg-indigo-50 border-2 border-white rounded-[40px] shadow-sm flex flex-col items-center text-center gap-4 relative overflow-hidden mt-12">
-        <div className="absolute right-0 top-0 h-full w-32 bg-indigo-100/30 skew-x-12 translate-x-16"></div>
-        <div className="p-4 bg-white rounded-3xl shadow-md border border-indigo-100 relative z-10 w-fit">
-          <ShieldCheck className="w-8 h-8 text-green-500" />
-        </div>
-        <div className="relative z-10">
-          <h4 className="font-black text-xl text-indigo-900 mb-2">실시간 자동화 점검</h4>
-          <p className="text-indigo-700/80 font-medium max-w-2xl">
-            설정을 저장한 후 운영 시간 내에 인스타그램으로 메시지를 보내보세요. 설정한 말투와 적극성에 따라 AI가 실시간으로 고객을 응대하며 CRM 태그를 부여합니다.
-          </p>
-        </div>
-      </div>
     </>
   );
 
+
+  const renderMobileSimulator = (messages = []) => {
+    // backward compatibility for single message calls
+    const messageList = Array.isArray(messages) ? messages : [messages];
+
+    return (
+      <div className="relative w-[310px] h-[620px] bg-black rounded-[3rem] p-3 shadow-2xl border-[10px] border-gray-950 overflow-hidden shrink-0">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-7 bg-gray-950 rounded-b-2xl z-20"></div>
+        {/* Screen Content */}
+        <div className="w-full h-full bg-white rounded-[2.5rem] relative overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="h-20 bg-white border-b border-gray-100 flex items-center px-8 pt-6 shrink-0 shadow-sm z-10">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black text-gray-900 truncate">{customerStatus?.instagram_account?.instagram_username || '우리 브랜드'}</p>
+              <p className="text-[10px] font-bold text-gray-400">Instagram</p>
+            </div>
+          </div>
+
+          {/* Chat Body */}
+          <div className="flex-1 bg-gray-50 p-6 space-y-6 overflow-y-auto custom-scrollbar pt-12">
+            {messageList.map((msg, idx) => (
+              <div key={idx} className="flex flex-col items-end gap-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${idx * 150}ms` }}>
+                <div className={`p-3.5 rounded-2xl rounded-br-sm max-w-[85%] text-[12px] font-bold leading-relaxed shadow-lg relative border ${
+                  idx === 0 && messageList.length > 1 
+                    ? "bg-white text-indigo-600 border-indigo-100 shadow-indigo-100/50" // First bubble (Follow Gate)
+                    : "bg-gradient-to-br from-blue-500 to-indigo-600 text-white border-white/10 shadow-indigo-100" // Actual DM
+                }`}>
+                  {msg.imageUrl && (
+                    <div className="mb-3 rounded-xl overflow-hidden border border-white/20 shadow-inner">
+                      <img src={msg.imageUrl} className="w-full h-auto object-cover max-h-40" alt="post" />
+                    </div>
+                  )}
+                  {msg.content ? msg.content.split('\n').map((line, i) => (
+                    <React.Fragment key={i}>
+                      {line}
+                      {i !== msg.content.split('\n').length - 1 && <br />}
+                    </React.Fragment>
+                  )) : '내용 없음'}
+
+                  {/* Buttons Preview */}
+                  {msg.buttons && msg.buttons.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {msg.buttons.map((btn, bIdx) => (
+                        <div key={bIdx} className={`w-full py-2 rounded-xl text-center border font-black text-[11px] transition-colors cursor-default ${
+                          idx === 0 && messageList.length > 1
+                            ? "bg-indigo-600 text-white border-indigo-700"
+                            : "bg-white/20 text-white border-white/10"
+                        }`}>
+                          {btn.text || btn.label || `버튼 ${bIdx + 1}`}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pr-1">
+                  {idx === 0 && messageList.length > 1 ? "1단계: 팔로우 확인" : "발송 메시지"}
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* Bottom Input Area */}
+          <div className="h-16 bg-white border-t border-gray-100 shrink-0 flex items-center px-4 gap-3">
+            <div className="w-full h-10 bg-gray-100 rounded-full flex items-center px-4">
+              <span className="text-xs text-gray-400 font-bold">메시지 보내기...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderNotification = () => {
     if (!notification.show) return null;
@@ -7279,10 +8637,16 @@ function Dashboard() {
       <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[99999] animate-in slide-in-from-top-full duration-500 max-w-md w-full px-4">
         <div className={`
           flex items-center gap-4 px-6 py-4 rounded-2xl shadow-2xl border bg-white
-          ${notification.type === 'success' ? 'border-green-100 shadow-green-500/10' : 'border-red-100 shadow-red-500/10'}
+          ${notification.type === 'success' ? 'border-green-100 shadow-green-500/10' :
+            notification.type === 'info' ? 'border-indigo-100 shadow-indigo-500/10' :
+              'border-red-100 shadow-red-500/10'}
         `}>
-          <div className={`p-2.5 rounded-xl ${notification.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <div className={`p-2.5 rounded-xl ${notification.type === 'success' ? 'bg-green-50 text-green-600' :
+            notification.type === 'info' ? 'bg-indigo-50 text-indigo-600' :
+              'bg-red-50 text-red-600'}`}>
+            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> :
+              notification.type === 'info' ? <Info className="w-5 h-5" /> :
+                <AlertCircle className="w-5 h-5" />}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-black text-gray-900 tracking-tight leading-tight">{safeString(notification.message)}</p>
@@ -7340,6 +8704,23 @@ function Dashboard() {
             운영 중인 플로우
           </button>
           <button
+            onClick={() => {
+              setBuilderEditIndex(null);
+              setBuilderTargetPosts([]);
+              setBuilderKeywords(['링크', '구매']);
+              setBuilderDmMessage('안녕하세요! 요청하신 시크릿 링크를 보내드립니다 😆\n\n👇 아래 링크를 클릭해주세요!');
+              setBuilderFollowCheck(false);
+              setAutomationView('builder');
+            }}
+            className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${automationView === 'builder'
+              ? 'bg-white text-emerald-600 shadow-sm'
+              : 'text-gray-400 hover:text-gray-600'
+              }`}
+          >
+            <Bot className={`w-3.5 h-3.5 ${automationView === 'builder' ? 'text-emerald-600' : 'text-gray-400'}`} />
+            초간편 자동화
+          </button>
+          <button
             onClick={() => setAutomationView('templates')}
             className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${automationView === 'templates'
               ? 'bg-white text-purple-600 shadow-sm'
@@ -7355,6 +8736,245 @@ function Dashboard() {
           {automationView === 'active' && (
             <div className="space-y-12">
               {renderFlows()}
+            </div>
+          )}
+          {automationView === 'builder' && (
+            <div className="space-y-8 animate-in zoom-in-95 duration-500">
+              <div className="flex flex-col items-center justify-center text-center mb-8">
+                <h2 className="text-2xl lg:text-3xl font-black text-gray-900 tracking-tight mb-2">
+                  {builderEditIndex !== null ? '초간편 자동화 수정' : '클릭 3번으로 끝내는 자동화'}
+                </h2>
+                <p className="text-sm text-gray-500 font-bold max-w-xl">
+                  {builderEditIndex !== null ? '기존 자동화 설정을 빠르게 수정하고 바로 적용하세요.' : '복잡한 설정 화면 대신, 카드형 빌더로 빠르게 메시지를 세팅하고 우측 가상 시뮬레이터로 실시간 확인하세요.'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
+                {/* Builder Form Area */}
+                <div className="space-y-6 flex flex-col justify-center">
+                  <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 relative group transition-all hover:shadow-xl hover:-translate-y-1">
+                    <div className="absolute -left-3 -top-3 w-10 h-10 rounded-full bg-indigo-600 text-white font-black flex items-center justify-center text-lg z-10 shadow-lg shadow-indigo-200">1</div>
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+                      <Target className="w-5 h-5 text-indigo-500" /> 어떤 포스트에서 작동할까요?
+                    </h3>
+                    <div className="flex flex-col gap-4">
+                      {builderTargetPosts.length === 0 ? (
+                        <Button
+                          onClick={() => {
+                            if (!mediaList || mediaList.length === 0) loadUserMedia(customerId);
+                            setShowPostPicker(true);
+                          }}
+                          className="w-full h-14 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-2 border-dashed border-indigo-200 rounded-2xl font-black flex items-center justify-center gap-2 transition-all group"
+                        >
+                          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                          작동할 게시물 선택하기
+                        </Button>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between px-2">
+                            <p className="text-xs font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1.5">
+                              <Check className="w-3 h-3" /> {builderTargetPosts.length}개의 게시물 선택됨
+                            </p>
+                            <button
+                              onClick={() => setShowPostPicker(true)}
+                              className="text-[10px] font-black text-gray-400 hover:text-indigo-600 underline underline-offset-4"
+                            >
+                              게시물 수정하기
+                            </button>
+                          </div>
+                          <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                            {builderTargetPosts.map((post) => (
+                              <div key={post.id} className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 border-white shadow-sm ring-1 ring-indigo-100 relative group">
+                                <img src={post.media_url} className="w-full h-full object-cover" alt="Selected" />
+                                <button
+                                  onClick={() => setBuilderTargetPosts(builderTargetPosts.filter(p => p.id !== post.id))}
+                                  className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                >
+                                  <X className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 relative group transition-all hover:shadow-xl hover:-translate-y-1">
+                    <div className="absolute -left-3 -top-3 w-10 h-10 rounded-full bg-emerald-500 text-white font-black flex items-center justify-center text-lg z-10 shadow-lg shadow-emerald-200">2</div>
+                    <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5 text-emerald-500" /> 어떤 댓글에 반응할까요?
+                      </h3>
+                      {isPremiumFeatureLocked && (
+                        <Badge className="bg-indigo-100 text-indigo-700 font-bold border-none px-3 flex items-center gap-1 cursor-pointer hover:bg-indigo-200" onClick={() => setCurrentView('subscription')}>
+                          <Sparkles className="w-3 h-3" /> AI 의미 매칭 잠김
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="space-y-4">
+                      {/* Keyword Tag Display */}
+                      <div className="flex flex-wrap gap-2 min-h-[40px] p-1">
+                        {builderKeywords.map((kw, idx) => (
+                          <Badge
+                            key={`${kw}-${idx}`}
+                            className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 animate-in zoom-in-0 duration-200"
+                          >
+                            {kw}
+                            <button
+                              onClick={() => setBuilderKeywords(builderKeywords.filter((_, i) => i !== idx))}
+                              className="hover:bg-emerald-200/50 rounded-full p-0.5 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                        {builderKeywords.length === 0 && (
+                          <p className="text-xs text-gray-400 font-bold flex items-center gap-1.5 py-1">
+                            <AlertCircle className="w-3.5 h-3.5" /> 최소 1개 이상의 키워드를 추가해주세요.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Input Area */}
+                      <div className="relative group">
+                        <input
+                          type="text"
+                          placeholder="키워드 입력 후 엔터를 눌러주세요"
+                          className="w-full h-14 bg-gray-50 border-none rounded-2xl px-5 pr-14 text-gray-700 font-bold focus:ring-4 focus:ring-emerald-100 transition-all outline-none focus:bg-white border border-transparent focus:border-emerald-200"
+                          value={keywordInputValue}
+                          onChange={(e) => setKeywordInputValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.nativeEvent.isComposing) return; // 한글 조합 중 엔터 무시 (중복 입력 방지)
+                            if (e.key === 'Enter' && keywordInputValue.trim()) {
+                              e.preventDefault();
+                              const newKeyword = keywordInputValue.trim();
+                              if (!builderKeywords.includes(newKeyword)) {
+                                setBuilderKeywords([...builderKeywords, newKeyword]);
+                              }
+                              setKeywordInputValue('');
+                            }
+                          }}
+                        />
+                        <Button
+                          size="icon"
+                          onClick={() => {
+                            if (keywordInputValue.trim()) {
+                              const newKeyword = keywordInputValue.trim();
+                              if (!builderKeywords.includes(newKeyword)) {
+                                setBuilderKeywords([...builderKeywords, newKeyword]);
+                              }
+                              setKeywordInputValue('');
+                            }
+                          }}
+                          className="absolute right-2 top-2 w-10 h-10 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-200/50 transition-all active:scale-90"
+                        >
+                          <Plus className="w-5 h-5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-gray-100 relative group transition-all hover:shadow-xl hover:-translate-y-1">
+                    <div className="absolute -left-3 -top-3 w-10 h-10 rounded-full bg-rose-500 text-white font-black flex items-center justify-center text-lg z-10 shadow-lg shadow-rose-200">3</div>
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+                      <Send className="w-5 h-5 text-rose-500" /> 어떤 DM을 보낼까요?
+                    </h3>
+                    <textarea
+                      rows="4"
+                      placeholder="발송할 메시지를 입력하세요..."
+                      className="w-full bg-gray-50 border-none rounded-2xl p-5 text-gray-700 font-bold focus:ring-4 focus:ring-rose-100 transition-all outline-none resize-none"
+                      value={builderDmMessage}
+                      onChange={(e) => setBuilderDmMessage(e.target.value)}
+                    ></textarea>
+
+                    {/* Follow Gate Feature */}
+                    <div className="mt-6 pt-6 border-t border-gray-50">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-xl ${builderFollowCheck ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>
+                            <UserPlus className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-black text-gray-900 text-sm">팔로워 한정 정보 제공</p>
+                            <p className="text-[11px] font-bold text-gray-400">팔로우 여부를 확인한 뒤 메시지를 보냅니다</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setBuilderFollowCheck(!builderFollowCheck)}
+                          className={`w-14 h-8 rounded-full transition-all relative ${builderFollowCheck ? 'bg-indigo-500' : 'bg-gray-200'}`}
+                        >
+                          <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-sm ${builderFollowCheck ? 'left-7' : 'left-1'}`} />
+                        </button>
+                      </div>
+
+                      {builderFollowCheck && (
+                        <>
+                          <div className="flex flex-col gap-3">
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-indigo-400 uppercase tracking-widest pl-1">팔로우 유도 문구</label>
+                              <textarea
+                                rows="3"
+                                placeholder="팔로우 안 한 사용자에게 보낼 안내 문구를 입력하세요..."
+                                className="w-full bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-200 transition-all outline-none resize-none"
+                                value={builderFollowMessage}
+                                onChange={(e) => setBuilderFollowMessage(e.target.value)}
+                              ></textarea>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-black text-indigo-400 uppercase tracking-widest pl-1">버튼 문구</label>
+                              <input
+                                type="text"
+                                placeholder="버튼에 표시될 텍스트 (예: 정보 바로 받기)"
+                                className="w-full h-11 bg-indigo-50/50 border border-indigo-100 rounded-xl px-4 text-sm text-indigo-900 font-bold focus:ring-2 focus:ring-indigo-200 transition-all outline-none"
+                                value={builderFollowButtonText}
+                                onChange={(e) => setBuilderFollowButtonText(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                            <p className="text-[10px] font-bold text-amber-700 leading-relaxed">
+                              메시지 하단에 입력하신 <span className="underline">[{builderFollowButtonText}]</span> 버튼이 자동으로 추가됩니다.
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={handleCreateSimpleFlow}
+                    disabled={flowsSaving || builderTargetPosts.length === 0}
+                    className="w-full h-16 bg-gray-900 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-gray-200 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+                  >
+                    {flowsSaving ? (
+                      <RotateCw className="w-6 h-6 animate-spin" />
+                    ) : (
+                      <Zap className="w-6 h-6 fill-white" />
+                    )}
+                    {builderEditIndex !== null ? '수정 사항 저장하기' : '자동화 생성 및 활성화'}
+                  </Button>
+                </div>
+
+                {/* Mobile Preview Area */}
+                <div className="flex justify-center items-center lg:sticky lg:top-24 h-fit">
+                  {builderFollowCheck ? (
+                    renderMobileSimulator([
+                      { 
+                        content: builderFollowMessage, 
+                        buttons: [{ text: builderFollowButtonText, color: 'indigo' }] 
+                      },
+                      { 
+                        content: builderDmMessage 
+                      }
+                    ])
+                  ) : (
+                    renderMobileSimulator([{ content: builderDmMessage }])
+                  )}
+                </div>
+              </div>
             </div>
           )}
           {automationView === 'templates' && (
@@ -7658,11 +9278,12 @@ function Dashboard() {
               </button>
               <button
                 onClick={async () => {
-                  const updated = keywordReplies.filter(r => r !== keywordToDelete);
+                  const updated = keywordReplies.filter((_, idx) => idx !== keywordToDelete.masterIndex);
                   setKeywordReplies(updated);
                   setShowDeleteConfirm(false);
                   setKeywordToDelete(null);
                   await saveKeywordSettings(updated);
+                  showNotify('자동화가 삭제되었습니다.', 'success');
                 }}
                 className="h-14 bg-red-500 text-white rounded-2xl font-black text-base shadow-lg shadow-red-200 hover:bg-red-600 transition-all active:scale-[0.98]"
               >
@@ -7697,8 +9318,8 @@ function Dashboard() {
               {count}개의 댓글을 {isDelete ? '삭제' : '숨김'}하시겠습니까?
             </h2>
             <p className="text-gray-500 font-bold mb-8 text-sm px-4 leading-relaxed">
-              {isDelete 
-                ? '삭제된 댓글은 인스타그램에서 영구히 사라지며 복구할 수 없습니다.' 
+              {isDelete
+                ? '삭제된 댓글은 인스타그램에서 영구히 사라지며 복구할 수 없습니다.'
                 : '숨겨진 댓글은 작성자와 본인에게만 보이며, 타인에겐 노출되지 않습니다.'}
             </p>
 
@@ -7861,12 +9482,12 @@ function Dashboard() {
 
     const fetchAllData = async () => {
       if (!isMounted) return;
-      
+
       try {
         // Step 1: STRICT Session Verification (Verify-First)
         // Dashboard will NOT be revealed until this succeeds.
         const sessionData = await loadInitialCustomerData(cid);
-        
+
         // If sessionData is null (due to 401/404 redirect), stop here.
         if (!sessionData) return;
 
@@ -7883,6 +9504,7 @@ function Dashboard() {
           loadDashboardStats(cid),
           loadAiInsights(cid),
           loadAutomationStats(cid),
+          loadBasicDashboardSummary(cid),
           loadActivities(cid),
           loadPageInsights(cid),
           loadIgInsights(cid).then(() => {
@@ -7897,12 +9519,10 @@ function Dashboard() {
 
         Promise.all(backgroundTasks).catch(err => {
           if (err.name !== 'AbortError' && isMounted) {
-            console.warn("Non-critical background data failed to load:", err);
           }
         });
 
       } catch (error) {
-        console.error("Critical Dashboard initialization error:", error);
         if (isMounted) {
           // SaaS Standard: Distinguish between Auth error and Connection error
           if (error.message?.includes('401') || error.message?.includes('404')) {
@@ -7910,7 +9530,7 @@ function Dashboard() {
           } else {
             setInitializationError('서버와 연결할 수 없습니다.');
           }
-          setPageLoading(false); 
+          setPageLoading(false);
         }
       }
     };
@@ -7944,7 +9564,9 @@ function Dashboard() {
       loadUserMedia(customerId);
     }
     if (currentView === 'contacts') {
-      loadContacts(customerId);
+      if (!isAiPremiumLocked) {
+        loadContacts(customerId);
+      }
     }
   }, [currentView, automationView, customerId]);
 
@@ -7975,17 +9597,33 @@ function Dashboard() {
   const showOnboarding = customerStatus && !customerStatus.instagram_account;
   const pageConnected = Boolean(customerStatus?.instagram_account?.page_id);
 
-  // Is user effectively on a free tier (either naturally or downgraded due to expiration)
-  const isFreePlan = subscriptionStatus?.plan_name === 'free' || !subscriptionStatus?.plan_name;
+  // Robust Plan Weight and Access Control
+  const PLAN_LEVELS = {
+    'free': 0,
+    'basic-free': 0, 'basic-starter': 1, 'basic-pro': 2, 'basic-custom': 3,
+    'ai-free': 0, 'ai-starter': 1, 'ai-pro': 2, 'ai-business': 3, 'ai-custom': 4
+  };
+
+  const planId = subscriptionStatus?.plan_name || 'free';
+  const planWeight = PLAN_LEVELS[planId] || 0;
+  const userTrack = planId.startsWith('ai-') ? 'ai' : (planId.startsWith('basic-') ? 'basic' : 'free');
+
+  // Logic: Truly free means weight 0 or explicitly 'free'
+  // Basic Starter/Pro/AI Plans have weight > 0
+  const isFreePlan = (planWeight === 0 && planId === 'free') || planId === 'basic-free' || planId === 'ai-free' || !subscriptionStatus?.plan_name;
 
   // Is the user's subscription expired / past_due (was a paid user but didn't renew)
-  const isExpiredPaidPlan = ['past_due', 'canceled', 'expired'].includes(subscriptionStatus?.status);
+  const isExpiredPaidPlan = ['past_due', 'canceled', 'expired'].includes(subscriptionStatus?.status) && planId !== 'free';
+
+  // General Premium Features (Automation, Sync, etc.) are locked ONLY for truly free users OR expired ones
+  const isPremiumFeatureLocked = isFreePlan || isExpiredPaidPlan;
+
+  // AI Premium Features (Missed Opportunities, Strategy Report)
+  // Restricted to: AI Track + Pro Tier (Weight 2) and above
+  const isAiPremiumLocked = (userTrack !== 'ai') || (planWeight < 2) || isExpiredPaidPlan;
 
   // usageLocked means they hit their limit (e.g. 50/50 replies) — only for free plan
   const usageLocked = isFreePlan && subscriptionStatus?.usage_count >= (subscriptionStatus?.usage_limit || 50);
-
-  // Premium features are locked for free users OR expired paid users (past_due)
-  const isPremiumFeatureLocked = isFreePlan || isExpiredPaidPlan;
 
   // Previously this auto-redirected users, but we now use a Post-Subscription Data Retention Policy.
   // Users can view their historical dashboard data, but actions will be blocked via 'isPremiumFeatureLocked'.
@@ -7998,7 +9636,7 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden font-sans selection:bg-purple-100">
-      {pageLoading && renderLoadingScreen()}
+      {(pageLoading || initializationError) && renderLoadingScreen()}
       {renderNotification()}
       {/* Ambient Background (Matching Home) */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -8063,12 +9701,14 @@ function Dashboard() {
                     }`}
                   onClick={() => setShowSubscriptionMenu(!showSubscriptionMenu)}
                 >
-                  <div className={`w-2 h-2 rounded-full ${subscriptionStatus?.status === 'active' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                  <span className={`text-xs font-bold ${subscriptionStatus?.plan_name !== 'free' ? 'text-indigo-900' : 'text-slate-700'}`}>
-                    {subscriptionStatus?.plan_name
-                      ? (subscriptionStatus.plan_name.charAt(0).toUpperCase() + subscriptionStatus.plan_name.slice(1))
-                      : 'Free Plan'}
-                  </span>
+                  <div className={`w-2 h-2 rounded-full ${(subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                  <span className={`text-xs font-bold ${subscriptionStatus?.plan_name !== 'free' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid') ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                    {subscriptionStatus?.plan_name && subscriptionStatus.plan_name !== 'free'
+                                      ? subscriptionStatus.plan_name.toUpperCase().replace('-', ' ')
+                                      : (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid' 
+                                          ? (paymentHistory[0].amount >= 5000 ? (paymentHistory[0].amount >= 149000 ? 'AI PRO' : 'BASIC STARTER') : 'BASIC PLAN') 
+                                          : 'Free Plan')}
+                                  </span>
                   <ChevronDown className={`w-3 h-3 transition-transform ${showSubscriptionMenu ? 'rotate-180 text-indigo-600' : 'text-indigo-400'}`} />
                 </div>
               )}
@@ -8078,8 +9718,8 @@ function Dashboard() {
                 <div className="absolute right-0 mt-2 w-64 bg-white/90 backdrop-blur-xl border border-gray-200/50 shadow-2xl rounded-2xl p-4 z-50 animate-in fade-in zoom-in duration-200 origin-top-right">
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">구독 정보</span>
-                    <Badge className={subscriptionStatus?.plan_name !== 'free' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-100 text-slate-600'}>
-                      {subscriptionStatus?.status === 'active' ? '사용 중' : '만료됨'}
+                    <Badge className={(subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-100 text-slate-600'}>
+                      {(subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? '사용 중' : '만료됨'}
                     </Badge>
                   </div>
 
@@ -8091,7 +9731,11 @@ function Dashboard() {
                       <div>
                         <p className="text-[11px] text-gray-400 font-medium">현재 플랜</p>
                         <p className="text-sm font-bold text-gray-900 leading-tight">
-                          {subscriptionStatus?.plan_name?.toUpperCase() || 'FREE'} PLAN
+                          {subscriptionStatus?.plan_name && subscriptionStatus.plan_name !== 'free' 
+                            ? subscriptionStatus.plan_name.toUpperCase().replace('-', ' ') 
+                            : (paymentHistory.length > 0 && paymentHistory[0].status === 'paid' 
+                                ? 'BASIC STARTER' 
+                                : 'FREE PLAN')}
                         </p>
                       </div>
                     </div>
@@ -8108,13 +9752,20 @@ function Dashboard() {
                             })}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center text-[13px]">
-                          <span className="text-gray-500">결제 수단</span>
-                          <span className="font-semibold text-gray-900">
-                            {subscriptionStatus.payment_method === 'tosspayments'
-                              ? `토스페이먼츠${subscriptionStatus.card_name ? ` (${subscriptionStatus.card_name}${subscriptionStatus.card_number ? ` ${subscriptionStatus.card_number}` : ''})` : ''}`
-                              : (subscriptionStatus.payment_method || '카드결제')}
-                          </span>
+                        <div className="flex justify-between items-start text-[13px] gap-4">
+                          <span className="text-gray-500 whitespace-nowrap pt-0.5">결제 수단</span>
+                          <div className="font-semibold text-gray-900 text-right flex flex-col items-end">
+                            <span>
+                              {subscriptionStatus.payment_method === 'tosspayments'
+                                ? '토스페이먼츠'
+                                : (subscriptionStatus.payment_method || '카드결제')}
+                            </span>
+                            {subscriptionStatus.card_name && (
+                              <span className="text-[11px] text-gray-500 mt-0.5 whitespace-nowrap tracking-tight font-medium">
+                                {subscriptionStatus.card_name} {subscriptionStatus.card_number}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -8451,6 +10102,9 @@ function Dashboard() {
       </main>
 
       {showScenarioModal && renderScenarioModal()}
+      {showPostPicker && renderPostPickerModal()}
+      {showTargetPostPreview && renderTargetPostPreviewModal()}
+      {showTargetPostsPreview && renderTargetPostsPreviewModal()}
       {showFlowModal && renderFlowModal()}
       {showAiKbModal && renderAiKbModal()}
       {showAccountModal && renderAccountModal()}
@@ -8476,7 +10130,7 @@ function Dashboard() {
           onClick={(e) => e.target === e.currentTarget && setShowSubscriptionModal(false)}
         >
           {/* Modal Content - Scrollable container for the Subscription component */}
-          <div 
+          <div
             className="min-h-full px-4 md:px-8 py-12 pb-24 md:pb-32 flex justify-center items-center"
             onClick={(e) => e.target === e.currentTarget && setShowSubscriptionModal(false)}
           >
@@ -8492,6 +10146,328 @@ function Dashboard() {
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Basic KPI Detail Modal - Moved to root level for correct viewport centering */}
+      {showBasicKpiDetailModal && (
+        <div
+          className="fixed inset-0 z-[1110] overflow-y-auto custom-scrollbar bg-black/60 backdrop-blur-md flex justify-center"
+          onClick={(e) => e.target === e.currentTarget && setShowBasicKpiDetailModal(false)}
+        >
+          <div className="relative min-h-full flex justify-center p-4 py-12 pointer-events-none w-full">
+            <Card className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border-none p-0 pointer-events-auto h-fit my-auto animate-in zoom-in-95 duration-300">
+              <div className="relative p-6 md:p-8 lg:p-10 border-b border-gray-50 flex items-center justify-between bg-gradient-to-b from-gray-50/50 to-white min-h-[120px] md:min-h-[160px]">
+                {/* Left: Icon (Start Area) */}
+                <div className={`w-12 h-12 md:w-14 md:h-14 shrink-0 rounded-[1.25rem] flex items-center justify-center shadow-lg z-10 ${
+                  basicKpiDetail?.type === 'active-automation' ? 'bg-emerald-500 shadow-emerald-200' :
+                  basicKpiDetail?.type === 'top-posts' ? 'bg-pink-500 shadow-pink-200' :
+                  basicKpiDetail?.type === 'today-automated' ? 'bg-blue-500 shadow-blue-200' :
+                  'bg-violet-600 shadow-violet-200'
+                }`}>
+                  {basicKpiDetail?.type === 'top-posts' ? <ImageIcon className="w-6 h-6 md:w-7 md:h-7 text-white" /> :
+                   basicKpiDetail?.type === 'last7-trend' ? <TrendingUp className="w-6 h-6 md:w-7 md:h-7 text-white" /> :
+                   basicKpiDetail?.type === 'today-automated' ? <Zap className="w-6 h-6 md:w-7 md:h-7 text-white" /> :
+                   <Workflow className="w-6 h-6 md:w-7 md:h-7 text-white" />}
+                </div>
+
+                {/* Center: Title (Absolute Dead Center) */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-20">
+                  <div className="space-y-1.5 text-center pointer-events-auto max-w-sm md:max-w-lg">
+                    <h3 className="text-xl md:text-2xl lg:text-3xl font-black text-gray-900 tracking-tight leading-tight truncate">
+                      {basicKpiDetail?.title || '상세 데이터'}
+                    </h3>
+                    <p className="hidden md:block text-[12px] md:text-[13px] font-bold text-gray-400">
+                      {basicKpiDetail?.type === 'active-automation' ? '현재 활성화되어 실행 중인 자동화 목록입니다' :
+                       basicKpiDetail?.type === 'top-posts' ? '최근 분석된 실시간 반응 최고 게시물입니다' :
+                       basicKpiDetail?.type === 'today-automated' ? '오늘 하루 동안 처리된 액션 유형별 실적입니다' :
+                       '최근 7일간의 AI 자동화 처리 실적 및 추이입니다'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right: Close Button (End Area) */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowBasicKpiDetailModal(false)}
+                  className="shrink-0 rounded-2xl hover:bg-gray-100 transition-all h-12 w-12 z-10"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </Button>
+              </div>
+
+              <div className="p-8">
+                {basicKpiDetail?.type === 'active-automation' && (
+                  <div className="space-y-2">
+                    {/* List Header - Perfectly synced structure for all columns */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center p-3 px-6 mb-1">
+                      <div className="md:col-span-4 flex items-center gap-2 min-w-0">
+                        <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">자동화 이름 / 유형</span>
+                      </div>
+                      <div className="hidden md:block md:col-span-3 min-w-0">
+                        <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest px-1">트리거 조건</span>
+                      </div>
+                      <div className="hidden md:block md:col-span-3 text-center">
+                        <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">대상 및 채널</span>
+                      </div>
+                      <div className="hidden md:block md:col-span-2 flex items-center justify-between md:justify-end gap-6 pr-2">
+                        <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">처리 건수 / 상태</span>
+                      </div>
+                    </div>
+
+                    {(basicKpiDetail.rows || []).length === 0 ? (
+                      <div className="py-20 flex flex-col items-center justify-center text-center bg-gray-50/30 rounded-[2rem] border border-dashed border-gray-200">
+                        <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mb-6 shadow-sm ring-1 ring-gray-100">
+                          <Zap className="w-10 h-10 text-gray-200" />
+                        </div>
+                        <p className="text-lg font-black text-gray-400">활성화된 자동화가 없습니다</p>
+                        <p className="text-sm font-bold text-gray-300 mt-2">새로운 자동화 시나리오를 만들어보세요</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {(basicKpiDetail.rows || []).map((row, idx) => (
+                          <div 
+                            key={`${row.id || idx}-${row.name}`} 
+                            className="group grid grid-cols-1 md:grid-cols-12 gap-4 items-center p-3 px-6 rounded-2xl bg-white border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/10 transition-all duration-200"
+                          >
+                            {/* Name & Type */}
+                            <div className="md:col-span-4 flex items-center gap-2 min-w-0">
+                              <h4 className="text-[13px] font-black text-gray-900 truncate group-hover:text-indigo-600 transition-colors">
+                                {row.name}
+                              </h4>
+                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0 ${
+                                row.kind === '시나리오' ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700'
+                              }`}>
+                                {row.kind}
+                              </span>
+                            </div>
+
+                            {/* Trigger */}
+                            <div className="md:col-span-3 min-w-0">
+                              <span className="text-[13px] font-bold text-gray-600 truncate block">"{row.trigger}"</span>
+                            </div>
+
+                            {/* Channel/Target */}
+                            <div className="md:col-span-3 text-center">
+                              <span className="text-[13px] font-bold text-gray-500">{row.channel} · {row.target}</span>
+                            </div>
+
+                            {/* Stats & Status */}
+                            <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-6 pr-2">
+                              <div className="text-[13px] font-black text-gray-900">
+                                {row.triggerCount || 0}건
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="relative flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                                <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest hidden lg:inline">Live</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {basicKpiDetail?.type === 'top-posts' && (
+                  <div className="space-y-4">
+                    {(basicKpiDetail.rows || []).length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
+                          <p className="text-[11px] font-bold text-emerald-700">TOP 게시물 평균 반응</p>
+                          <p className="text-lg font-black text-emerald-900 mt-1">
+                            {Math.round(
+                              (basicKpiDetail.rows || []).reduce((acc, r) => acc + ((r.like_count || 0) + (r.comments_count || 0)), 0) /
+                              Math.max(1, (basicKpiDetail.rows || []).length)
+                            )}건
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3">
+                          <p className="text-[11px] font-bold text-indigo-700">최고 반응 게시물</p>
+                          <p className="text-sm font-black text-indigo-900 mt-1 line-clamp-1">
+                            {(basicKpiDetail.rows || [])[0]?.caption || '내용 없음'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
+                          <p className="text-[11px] font-bold text-gray-600">분석 대상 게시물</p>
+                          <p className="text-lg font-black text-gray-900 mt-1">{(basicKpiDetail.rows || []).length}개</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {(basicKpiDetail.rows || []).length === 0 ? (
+                      <div className="sm:col-span-3 p-5 rounded-2xl bg-gray-50 border border-gray-100 text-sm font-bold text-gray-400 text-center">
+                        반응 데이터가 아직 없습니다.
+                      </div>
+                    ) : (
+                      (basicKpiDetail.rows || []).map((row, idx) => (
+                        <div key={row.id || idx} className="rounded-2xl border border-gray-100 overflow-hidden bg-white">
+                          <div className="aspect-square bg-gray-50">
+                            {(row.thumbnail_url || row.media_url) ? (
+                              <img src={row.thumbnail_url || row.media_url} alt="top post detail" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <ImageIcon className="w-10 h-10 text-gray-200" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3">
+                            <p className="text-[11px] font-black text-gray-900 line-clamp-2">{row.caption || '내용 없음'}</p>
+                            <p className="mt-2 text-[11px] font-bold text-gray-500">좋아요 {row.like_count || 0} · 댓글 {row.comments_count || 0}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    </div>
+                  </div>
+                )}
+
+                {basicKpiDetail?.type === 'last7-trend' && (() => {
+                  const maxCount = Math.max(1, ...(basicKpiDetail.rows || []).map(r => r.count));
+                  const totalCount = (basicKpiDetail.rows || []).reduce((acc, r) => acc + (r.count || 0), 0);
+                  const avgCount = Math.round((totalCount / Math.max(1, (basicKpiDetail.rows || []).length)) * 10) / 10;
+                  const sorted = [...(basicKpiDetail.rows || [])].sort((a, b) => (b.count || 0) - (a.count || 0));
+                  const bestDay = sorted[0] || { dateLabel: '-', count: 0 };
+
+                  return (
+                    <div className="space-y-6">
+                      {/* Premium Insights Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="rounded-2xl bg-white border border-gray-100 p-5 shadow-sm">
+                          <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">7일 총 자동 처리</p>
+                          <div className="flex items-baseline gap-1 mt-2">
+                            <span className="text-3xl font-black text-gray-900">{totalCount}</span>
+                            <span className="text-sm font-bold text-gray-500">건</span>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl bg-white border border-gray-100 p-5 shadow-sm">
+                          <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">일평균 처리</p>
+                          <div className="flex items-baseline gap-1 mt-2">
+                            <span className="text-3xl font-black text-gray-900">{avgCount}</span>
+                            <span className="text-sm font-bold text-gray-500">건</span>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl bg-white border border-gray-100 p-5 shadow-sm">
+                          <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">최고 처리일</p>
+                          <div className="flex flex-col mt-2">
+                            <span className="text-xl font-black text-gray-900">{bestDay.dateLabel}</span>
+                            <span className="text-sm font-bold text-gray-500 mt-0.5">{bestDay.count}건 달성</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2026 Trend Vertical Bar Chart */}
+                      <div className="pt-2">
+                        <h4 className="text-sm font-black text-gray-900 mb-6 px-2">일자별 응답 트렌드</h4>
+                        <div className="relative bg-gradient-to-b from-gray-50/50 to-white rounded-[2rem] border border-gray-100/80 p-6 md:p-8 pt-16 flex items-end justify-between h-64 gap-2 md:gap-4 shadow-sm">
+                          {/* Background Grid Lines (Optional 2026 feel) */}
+                          <div className="absolute inset-0 flex flex-col justify-between p-6 md:p-8 pointer-events-none opacity-30">
+                            <div className="w-full h-px border-t border-dashed border-gray-300"></div>
+                            <div className="w-full h-px border-t border-dashed border-gray-300"></div>
+                            <div className="w-full h-px border-t border-gray-300"></div>
+                          </div>
+
+                          {(basicKpiDetail.rows || []).map((row, idx) => {
+                            const heightPct = Math.max(4, Math.round((row.count / maxCount) * 100)); // Ensure min height
+                            const isToday = idx === (basicKpiDetail.rows || []).length - 1;
+                            
+                            return (
+                              <div key={idx} className="relative flex flex-col items-center w-full group pt-4 h-full justify-end z-10 cursor-pointer">
+                                {/* Interactive Tooltip */}
+                                <div className="absolute bottom-full mb-3 opacity-0 group-hover:opacity-100 transition-all duration-200 transform group-hover:-translate-y-1 bg-gray-900 text-white text-xs font-black px-3 py-1.5 rounded-xl pointer-events-none flex flex-col items-center shadow-xl drop-shadow-md">
+                                  <span className="whitespace-nowrap">{row.count}건</span>
+                                  <div className="w-2.5 h-2.5 bg-gray-900 rotate-45 transform translate-y-2 -mt-2.5"></div>
+                                </div>
+                                
+                                {/* Vertical Bar */}
+                                <div className="w-full max-w-[32px] md:max-w-[48px] h-full flex items-end justify-center relative">
+                                  <div 
+                                    className={`w-full rounded-t-xl transition-all duration-500 ease-out ${
+                                      isToday 
+                                        ? 'bg-violet-500 shadow-md shadow-violet-300 group-hover:bg-violet-400' 
+                                        : 'bg-indigo-100 group-hover:bg-indigo-300'
+                                    }`}
+                                    style={{ height: `${heightPct}%` }}
+                                  ></div>
+                                </div>
+                                
+                                {/* Date Label */}
+                                <span className={`mt-4 text-[10px] md:text-sm font-black uppercase tracking-wider ${
+                                  isToday ? 'text-violet-600' : 'text-gray-400 group-hover:text-gray-600'
+                                }`}>
+                                  {isToday ? '오늘' : row.dateLabel}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {basicKpiDetail?.type === 'today-automated' && (
+                  <div className="space-y-6">
+                    {/* Insights Cards */}
+                    <div className="w-full">
+                      <div className="rounded-2xl bg-white border border-gray-100 p-6 sm:p-8 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[12px] font-black text-gray-400 uppercase tracking-widest">오늘 성공 처리</p>
+                          <div className="flex items-baseline gap-1 mt-2">
+                            <span className="text-4xl sm:text-5xl font-black text-gray-900">{(basicKpiDetail.total || 0).toLocaleString()}</span>
+                            <span className="text-lg font-bold text-gray-500 ml-1">건</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <h4 className="text-sm font-black text-gray-900 mb-4 px-2">최근 활동 유형별 비율 (100건 기준)</h4>
+                      <div className="space-y-3">
+                        {((basicKpiDetail.rows || []).reduce((a,b) => a+b.count, 0) === 0) ? (
+                           <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-100 pl-4 pr-4">
+                             <p className="text-sm font-bold text-gray-400">최근 수집된 세부 활동 내역이 없습니다</p>
+                           </div>
+                        ) : (
+                          (basicKpiDetail.rows || []).map((row, idx) => {
+                            const totalRows = Math.max(1, basicKpiDetail.rows.reduce((a,b) => a + b.count, 0));
+                            const widthPct = Math.min(100, Math.max(1, Math.round((row.count / totalRows) * 100)));
+                            return (
+                              <div key={idx} className="p-5 rounded-2xl bg-white border border-gray-100 shadow-sm flex flex-col gap-3">
+                                 <div className="flex justify-between items-center">
+                                    <span className="text-[13px] font-black text-gray-700 flex items-center gap-2">
+                                       {row.label === '시나리오 기반' ? <Workflow className="w-4 h-4 text-indigo-500" /> : 
+                                        row.label === 'AI 스마트 응답' ? <Zap className="w-4 h-4 text-pink-500" /> : 
+                                        <MessageCircle className="w-4 h-4 text-emerald-500" />}
+                                       {row.label}
+                                    </span>
+                                    <span className="text-sm font-black text-gray-900">{widthPct}% <span className="text-xs text-gray-400 ml-1">({row.count}건)</span></span>
+                                 </div>
+                                 <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                                    <div 
+                                      className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                                        row.label === '시나리오 기반' ? 'bg-indigo-500' :
+                                        row.label === 'AI 스마트 응답' ? 'bg-pink-500' :
+                                        'bg-emerald-500'
+                                      }`}
+                                      style={{ width: `${widthPct}%` }}
+                                    ></div>
+                                 </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
         </div>
       )}

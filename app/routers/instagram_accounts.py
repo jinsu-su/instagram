@@ -10,6 +10,7 @@ from app.database import get_db_session, AsyncSessionLocal
 from app.services.meta_oauth import MetaOAuthService
 from app.services.customer_service import CustomerService
 from app.services.insight_service import InsightService
+from app.services.subscription_service import SubscriptionService
 from app.utils.logging import get_logger
 from app.models.oauth_account import OAuthAccount, OAuthProvider
 from app.schemas.instagram import InstagramLinkRequest, AIResponseSettingsUpdate, ModerationSettingsUpdate, PostModerationUpdate, KeywordSettingsUpdate, InstagramAccountOptionsResponse, InstagramLinkResponse, TokenStatusResponse, BulkDeleteRequest, BulkDeleteResponse, SetPageTokenRequest
@@ -114,7 +115,7 @@ async def sync_instagram_conversations_background(customer_id: UUID, access_toke
                     else:
                         logger.info(f"ℹ️ [Background Sync] No new updates for customer {customer_id}")
                 else:
-                    logger.warning(f"⚠️ [Background Sync] API request failed: {resp.status_code} - {resp.text}")
+                    logger.warning(f"⚠️ [Background Sync] API request failed with status code: {resp.status_code}")
 
     except Exception as e:
         logger.error(f"❌ [Background Sync] Error syncing conversations: {str(e)}")
@@ -165,8 +166,7 @@ async def debug_performance_report_cache(
             ],
         }
     except Exception as e:
-        logger.error(f"[debug_performance_report_cache] failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"디버그 캐시 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="성능 리포트 데이터를 불러오지 못했습니다.")
 
 
 @router.get("/connect/options", response_model=InstagramAccountOptionsResponse)
@@ -244,12 +244,9 @@ async def list_instagram_options(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Instagram 옵션 목록 조회 중 오류: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Instagram 계정 목록을 불러오는 중 오류가 발생했습니다: {str(e)}"
+            detail="Instagram 계정 목록을 불러오는 중 오류가 발생했습니다."
         )
 
 
@@ -841,14 +838,19 @@ async def disconnect_instagram_accounts(
 @router.get("/accounts/{customer_id}/webhook-status")
 async def get_webhook_status(
     customer_id: UUID = Path(..., description="고객 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     웹훅 구독 상태를 확인합니다. (pages_manage_metadata 사용 사례)
-    검수용: Meta가 pages_manage_metadata 권한 사용을 확인할 수 있도록 합니다.
+    [Security Hardening] 본인만 조회 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access webhook status for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
+
     try:
         result = await db.execute(
             select(Customer)
@@ -1759,6 +1761,11 @@ async def get_performance_report(
     """
     from app.services.subscription_service import SubscriptionService
     
+    # [Security Hardening] 본인만 조회 가능하도록 권한 체크 추가
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access performance report for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="본인의 보고서만 조회할 수 있습니다.")
+
     # 구독 플랜 체크
     subscription_service = SubscriptionService(db)
     access_check = await subscription_service.check_ai_insight_access(customer_id, "performance_report")
@@ -1799,19 +1806,17 @@ async def get_performance_report(
                     report_data['cached'] = True
                     report_data['access_restricted'] = True
                     report_data['upgrade_message'] = access_check['reason']
-                return report_data
+                return {"success": True, "data": report_data}
         
         # 캐시도 없고 접근 불가
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "subscription_required",
-                "message": access_check['reason'],
-                "upgrade_required": access_check['upgrade_required'],
-                "recommended_plan": access_check.get('recommended_plan'),
-                "usage_info": access_check.get('usage_info')
-            }
-        )
+        return {
+            "success": False,
+            "error": "subscription_required",
+            "message": access_check['reason'],
+            "upgrade_required": access_check['upgrade_required'],
+            "recommended_plan": access_check.get('recommended_plan'),
+            "usage_info": access_check.get('usage_info')
+        }
     
     try:
         # 1. Get recent media and metrics via existing ig-insights logic
@@ -1869,7 +1874,7 @@ async def get_performance_report(
                 report_data['cached'] = True
                 # TTL 기준과 동일하게 updated_at 기준으로 age 계산
                 report_data['cache_age_hours'] = (datetime.utcnow() - cached_report.updated_at).total_seconds() / 3600
-            return report_data
+            return {"success": True, "data": report_data}
         
         # force_refresh가 True인 경우, 캐시가 있더라도 무시하고 새로 분석 진행
         if force_refresh and cached_report:
@@ -1902,18 +1907,9 @@ async def get_performance_report(
             logger.info(f"📊 AI Performance Report usage incremented: {usage_result['new_count']}/{usage_result['limit']}")
             
         except Exception as e:
-            logger.error(f"Gemini API 분석 실패: {str(e)}")
-            # Gemini API 실패 시에도 기본 응답 반환 (서비스 중단 방지)
-            report = {
-                "summary": "AI 분석을 일시적으로 수행할 수 없습니다.",
-                "analysis": "시스템 점검 중입니다. 잠시 후 다시 시도해 주세요.",
-                "best_post": None,
-                "strategy": [
-                    "게시물을 꾸준히 업로드하여 데이터를 쌓아보세요.",
-                    "다양한 콘텐츠 타입(사진, 동영상, 릴스)을 시도해보세요.",
-                    "팔로워와의 소통을 늘려보세요."
-                ]
-            }
+            logger.error(f"Gemini API 분석 실패 (라우터 감지): {str(e)}")
+            # 서비스 단의 폴백 리포트 엔진을 호출하여 실제 데이터 리포트를 즉시 생성
+            report = insight_service._generate_statistical_fallback(recent_media, account_info=account_info)
         
         # 응답 구조 최종 검증
         if not isinstance(report, dict):
@@ -1963,23 +1959,22 @@ async def get_performance_report(
                 )
                 db.add(new_report)
                 logger.info(f"✅ AI Report cached successfully for hash {media_hash[:8]}")
-            
             await db.commit()
         except Exception as e:
             logger.error(f"Failed to cache AI report: {str(e)}")
             # Don't fail the request if caching fails
             
-        return report
+        return {"success": True, "data": report}
 
-    except HTTPException:
-        # FastAPI의 정상적인 에러 응답(403 등)은 그대로 통과시킵니다.
-        raise
     except Exception as e:
         logger.error(f"Error generating performance report: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
-            "summary": "AI 리포트 생성 중 오류가 발생했습니다.",
-            "analysis": "데이터를 처리하는 과정에서 문제가 발생했습니다.",
-            "strategy": ["잠시 후 다시 시도해 주세요."]
+            "success": False,
+            "error": "internal_error",
+            "message": "AI 리포트 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            "detail": str(e)
         }
 
 
@@ -1988,6 +1983,7 @@ async def get_ig_media(
     customer_id: UUID = Path(..., description="고객 ID"),
     limit: int = Query(10, ge=1, le=25, description="가져올 최근 게시물 개수"),
     force_refresh: bool = Query(False, description="캐시 무시 및 즉시 업데이트 여부"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
@@ -1995,6 +1991,11 @@ async def get_ig_media(
     AI Style Lab 입력용: 최근 IG 피드 이미지/동영상 URL 목록을 반환합니다.
     사용 권한: instagram_basic (읽기)
     """
+    # [Security Hardening] 본인만 조회 가능하도록 권한 체크 추가
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access IG media for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="본인의 피드만 조회할 수 있습니다.")
+
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.instagram_user_id:
@@ -2320,152 +2321,39 @@ async def get_ig_media(
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
 
-            # [Fix] Initialize ai_results_map and post_summaries_map to avoid NameError
-            ai_results_map = {}
-            post_summaries_map = {}
-            
-            # If AI analyzed data exists in cache, load it
-            try:
-                from app.models.post_analysis_cache import PostAnalysisCache
-                from sqlalchemy import select
-                
-                # Fetch recent AI summaries for these posts to avoid empty fields
-                media_ids = [m.get("id") for m in images if m.get("id")]
-                if media_ids:
-                    stmt = select(PostAnalysisCache).where(
-                        PostAnalysisCache.customer_id == customer_id,
-                        PostAnalysisCache.post_id.in_(media_ids)
-                    )
-                    cached_records = await db.execute(stmt)
-                    for record in cached_records.scalars().all():
-                        analysis = record.analysis_data.get("analysis", {})
-                        post_summaries_map[record.post_id] = {
-                            "summary": analysis.get("summary"),
-                            "dominant_sentiment": analysis.get("dominant_sentiment")
-                        }
-                    ai_results_map = post_summaries_map # For is_ai_analyzed check
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to load post analysis cache for batch: {e}")
-
-            summary = {
-                "total_posts": len(images),
-                "total_comments": 0,
-                "categories": {
-                    "complaint": 0,
-                    "question": 0,
-                    "neutral": 0,
-                    "feedback": 0,
-                    "praise": 0,
-                    "spam": 0,
-                    "toxic": 0
-                },
-                "posts": [],
-                "permission_used": "instagram_manage_comments / instagram_basic",
-                "message": "Instagram comments summary retrieved successfully",
-                "is_ai_analyzed": bool(ai_results_map)
+            return {
+                "ok": True,
+                "instagram_user_id": ig_user_id,
+                "images": images
             }
-
-            for m in images:
-                post_comments = m.get("comments", {}).get("data", []) if isinstance(m.get("comments"), dict) else []
-                post_id = m.get("id")
-                post_summary = {
-                    "post_id": post_id,
-                    "caption": (m.get("caption") or "")[:120],
-                    "comments_count": m.get("comments_count", 0),
-                    "like_count": m.get("like_count", 0),
-                    "samples": [],
-                    "ai_summary": post_summaries_map.get(post_id, {}).get("summary"),
-                    "dominant_sentiment": post_summaries_map.get(post_id, {}).get("dominant_sentiment"),
-                    "categories": {
-                        "complaint": 0,
-                        "question": 0,
-                        "neutral": 0,
-                        "feedback": 0,
-                        "praise": 0,
-                        "spam": 0,
-                        "toxic": 0
-                    },
-                }
-
-                # [Production Fix] Filter out owner comments from summary count and samples
-                valid_post_comments = []
-                owner_id_str = str(ig_user_id) if ig_user_id else None
-                owner_uname = getattr(instagram_account, "instagram_username", "aidm._.service")
-                owner_identifiers = {owner_id_str, owner_uname.lower() if owner_uname else None} - {None, ""}
-
-                for c in post_comments:
-                    c_from = c.get("from") or {}
-                    c_from_id = str(c_from.get("id") or c.get("from_id") or "")
-                    c_username = str(c.get("username") or c_from.get("username") or "").lower()
-                    
-                    # Strict identity match only (removing keyword heuristics as they were "이상해")
-                    is_self = (c_from_id in owner_identifiers) or \
-                              (c_username == "aidm._.service") or \
-                              ("aidm" in c_username) or \
-                              (owner_uname and c_username == owner_uname.lower())
-                    
-                    if not is_self:
-                        valid_post_comments.append(c)
-
-                for c in valid_post_comments:
-                    c_id = c.get("id")
-                    c_text = c.get("text", "")
-                    
-                    # AI 결과가 있으면 사용, 없으면 Fallback
-                    if c_id in ai_results_map:
-                        ai_res = ai_results_map[c_id]
-                        cat = ai_res.get("category", "NEUTRAL").lower()
-                        urgency = ai_res.get("urgency", "LOW")
-                    else:
-                        cat = _classify_comment(c_text)
-                        urgency = "LOW"
-
-                    # 매핑되지 않은 카테고리는 neutral로 처리
-                    if cat not in summary["categories"]:
-                        cat = "neutral"
-
-                    post_summary["categories"][cat] = post_summary["categories"].get(cat, 0) + 1
-                    summary["categories"][cat] = summary["categories"].get(cat, 0) + 1
-                    summary["total_comments"] += 1
-
-                    if len(post_summary["samples"]) < 3:  # 샘플 댓글 3개만
-                        c_user = c.get("username") or (c.get("from") or {}).get("username") or "unknown"
-                        post_summary["samples"].append({
-                            "text": c_text[:200],
-                            "like_count": c.get("like_count", 0),
-                            "timestamp": c.get("timestamp"),
-                            "username": c_user,
-                            "category": cat,
-                            "urgency": urgency,
-                            "ai_summary": ai_results_map.get(c_id, {}).get("summary") if c_id in ai_results_map else None
-                        })
-
-                summary["posts"].append(post_summary)
-
-            return summary
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Instagram 댓글 요약 조회 중 오류: {str(e)}")
+        logger.error(f"Instagram 미디어 조회 중 오류: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Instagram 댓글 요약 조회 중 오류가 발생했습니다: {str(e)}"
+            detail=f"Instagram 미디어 조회 중 오류가 발생했습니다: {str(e)}"
         )
 
 @router.get("/accounts/{customer_id}/page-insights")
 async def get_page_insights(
     customer_id: UUID = Path(..., description="고객 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     페이지 인사이트를 조회합니다. (pages_read_engagement 사용 사례)
-    검수용: Meta가 pages_read_engagement 권한 사용을 확인할 수 있도록 합니다.
+    [Security Hardening] 본인만 조회 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access page insights for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
+
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.page_id:
@@ -2531,7 +2419,7 @@ async def get_page_insights(
         raise
     except Exception as e:
         logger.error(f"페이지 인사이트 조회 중 오류: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="요청을 처리하는 중 오류가 발생했습니다.")
 
 from app.utils.rate_limiter import rate_limiter
 
@@ -2542,16 +2430,28 @@ async def analyze_single_post(
     max_comments: int = Query(2000, ge=1, le=5000, description="가져올 최대 댓글 수(개발/테스트용)"),
     skip_ai: bool = Query(False, description="AI 분석을 건너뛰고 댓글 목록만 신속하게 가져올지 여부"),
     force_refresh: bool = Query(False, description="캐시를 무시하고 강제로 새로 분석"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
+    subscription_service: SubscriptionService = Depends(SubscriptionService),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
     특정 게시물의 댓글을 상세 분석합니다. (증분 분석 + 병렬 처리 적용)
-    - 새로운 댓글만 AI에 전송
-    - 본인 댓글(답장) 필터링
-    - 병렬 배치 처리로 속도 최적화
+    [Security Hardening] 본인 확인 및 요금제(AI PRO) 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to analyze post for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
+    
+    # [Security Hardening] Plan Check: AI PRO 이상 요금제만 이용 가능
+    ai_access = await subscription_service.check_ai_insight_access(customer_id, 'comment_analysis')
+    if not ai_access.get('allowed'):
+        logger.warning(f"🚫 Plan restricted: customer {customer_id} attempted AI analysis on a non-premium plan.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=ai_access.get('reason', 'AI 요금제(AI PRO) 전용 기능입니다.')
+        )
     # Rate limit per customer per endpoint
     rl_result = await rate_limiter.allow(key=f"analyze_post:{customer_id}", max_calls=5, window_seconds=60)
     if not rl_result.allowed:
@@ -2794,13 +2694,28 @@ async def analyze_single_post(
 async def get_flagged_comments(
     customer_id: UUID = Path(..., description="고객 ID"),
     post_limit: int = Query(30, ge=1, le=100, description="스캔할 최근 게시물 수"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
+    subscription_service: SubscriptionService = Depends(SubscriptionService),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
     최근 게시물들을 스캔하여 SPAM이나 TOXIC으로 분류된 댓글들을 찾아 반환합니다.
+    [Security Hardening] 본인 확인 및 요금제(AI PRO) 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access flagged comments for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
+    
+    # [Security Hardening] Plan Check: AI PRO 이상 요금제만 이용 가능
+    ai_access = await subscription_service.check_ai_insight_access(customer_id, 'comment_analysis')
+    if not ai_access.get('allowed'):
+        logger.warning(f"🚫 Plan restricted: customer {customer_id} attempted filtration scan on a non-premium plan.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail=ai_access.get('reason', 'AI 요금제(AI PRO) 전용 기능입니다.')
+        )
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.instagram_user_id:
@@ -2934,13 +2849,17 @@ async def delete_post_comment(
     customer_id: UUID = Path(..., description="고객 ID"),
     post_id: str = Path(..., description="게시물 ID"),
     comment_id: str = Path(..., description="댓글 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     게시물의 댓글을 삭제합니다.
-    Instagram Graph API를 사용하여 댓글을 삭제합니다.
+    [Security Hardening] 본인만 삭제 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to delete comment for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         
@@ -3045,13 +2964,17 @@ async def hide_post_comment(
     post_id: str = Path(..., description="게시물 ID"),
     comment_id: str = Path(..., description="댓글 ID"),
     req: CommentHideRequest = Body(...),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     게시물의 댓글을 숨기거나 숨김 해제합니다.
-    Instagram Graph API (BUSINESS_MANAGEMENT 권한 필요)를 사용하여 댓글 노출 여부를 조정합니다.
+    [Security Hardening] 본인만 숨김 설정 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to hide comment for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.access_token:
@@ -3107,12 +3030,17 @@ async def bulk_delete_comments(
     customer_id: UUID = Path(..., description="고객 ID"),
     post_id: str = Path(..., description="게시물 ID"),
     comment_ids: list[str] = Body(..., embed=True),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     여러 개의 댓글을 한 번에 삭제합니다.
+    [Security Hardening] 본인만 대량 삭제 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried bulk delete for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     results = []
     success_count = 0
     fail_count = 0
@@ -3137,13 +3065,17 @@ async def bulk_delete_comments(
 async def verify_recipient(
     customer_id: UUID = Path(..., description="고객 ID"),
     recipient_instagram_id: str = Query(..., description="검증할 Instagram 사용자 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     받는 사람 Instagram User ID 검증
-    Instagram Graph API를 사용하여 받는 사람 ID가 유효한지 확인합니다.
+    [Security Hardening] 본인 계정 정보로만 검증 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried verify recipient for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     import httpx
     
     try:
@@ -3213,18 +3145,17 @@ async def send_instagram_message(
     customer_id: UUID = Query(..., description="고객 ID"),
     recipient_instagram_id: str = Query(..., description="메시지를 받을 Instagram 사용자 ID"),
     message: str = Query(..., description="전송할 메시지"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     승인된 고객의 Instagram 계정으로 메시지 전송
-    
-    플로우:
-    1. customer_id로 고객 정보 조회
-    2. 승인 상태 확인 (integration_status = 'APPROVED')
-    3. Instagram 계정 정보 가져오기 (page_id, access_token)
-    4. Instagram Graph API로 메시지 전송
+    [Security Hardening] 본인 계정으로만 메시지 전송 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to send message as customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     import httpx
     
     try:
@@ -3415,13 +3346,18 @@ async def get_instagram_conversations(
     customer_id: UUID = Query(..., description="고객 ID"),
     limit: int = Query(default=50, ge=1, le=100, description="가져올 대화 수"),
     include_latest_message: bool = Query(default=True, description="최신 메시지 포함 여부"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
     background_tasks: BackgroundTasks = None
 ) -> dict:
     """
     고객의 Instagram 대화 목록 조회 (DB 기반)
+    [Security Hardening] 본인의 대화 목록만 조회 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access conversations for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         # 1. 고객 정보 조회
         customer = await customer_service.get_customer(db=db, customer_id=customer_id)
@@ -3555,12 +3491,17 @@ async def get_conversation_messages(
     customer_id: UUID = Query(..., description="고객 ID"),
     conversation_id: str = Path(..., description="대화 ID"),
     limit: int = Query(default=50, ge=1, le=100, description="가져올 메시지 수"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     특정 대화의 메시지 목록 조회
+    [Security Hardening] 본인의 메시지만 조회 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to access messages for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     import httpx
     
     try:
@@ -3668,13 +3609,17 @@ async def get_conversation_messages(
 async def delete_instagram_conversation(
     customer_id: UUID = Query(..., description="고객 ID"),
     conversation_id: str = Path(..., description="대화 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     특정 대화 목록(세션) 삭제
-    - ChatMessage들은 sqlalchemy relationship cascade 속성에 의해 자동 삭제됩니다.
+    [Security Hardening] 본인의 채팅방만 삭제 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to delete conversation for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         from app.models.chat import ChatSession, ChatMessage
         from sqlalchemy import delete, select
@@ -3736,13 +3681,18 @@ async def delete_instagram_conversation(
 @router.get("/accounts/{customer_id}/check-token")
 async def check_instagram_account_token(
     customer_id: UUID = Path(..., description="고객 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     Instagram 계정의 Access Token 상태를 확인합니다.
+    [Security Hardening] 본인 토큰 정보만 확인 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to check token for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         # Instagram 계정 정보 조회
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
@@ -3855,13 +3805,18 @@ async def update_instagram_user_id_from_webhook(
 @router.get("/accounts/{customer_id}/debug-token")
 async def debug_instagram_token(
     customer_id: UUID = Path(..., description="고객 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     oauth_service: MetaOAuthService = Depends(MetaOAuthService.from_settings),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> dict:
     """
     저장된 Instagram 계정의 토큰 상세 정보(스코프, 유효성 등)를 조회합니다 (디버깅용).
+    [Security Hardening] 본인 토큰 상세 정보만 조회 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried to debug token for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     instagram_account = await customer_service.get_instagram_account(db, customer_id)
     if not instagram_account or not instagram_account.access_token:
         return {"error": "No Instagram account or token found for this customer."}
@@ -3880,16 +3835,21 @@ async def debug_instagram_token(
 
 
 @router.post("/accounts/{customer_id}/posts/{post_id}/comments/bulk", response_model=BulkDeleteResponse)
-async def bulk_delete_comments(
+async def bulk_delete_comments_v2(
     request: BulkDeleteRequest,
     customer_id: UUID = Path(..., description="고객 ID"),
     post_id: str = Path(..., description="게시물 ID"),
+    current_user: Customer = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
     customer_service: CustomerService = Depends(CustomerService),
 ) -> BulkDeleteResponse:
     """
     여러 개의 댓글을 한 번에 삭제합니다.
+    [Security Hardening] 본인의 게시물 댓글만 대량 삭제 가능하도록 권한 체크 추가
     """
+    if current_user.id != customer_id:
+        logger.warning(f"❌ Authorization failed: user {current_user.id} tried bulk delete v2 for customer {customer_id}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다.")
     try:
         instagram_account = await customer_service.get_instagram_account(db, customer_id)
         if not instagram_account or not instagram_account.access_token:

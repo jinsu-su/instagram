@@ -21,20 +21,28 @@ class JsonFormatter(logging.Formatter):
             log_record["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(log_record, ensure_ascii=False)
 
+from logging.handlers import RotatingFileHandler
+
 def configure_logging() -> None:
-    """Configure application logging."""
-    log_level = logging.DEBUG
+    """Configure application logging for production cloud environments."""
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
     
-    logging.basicConfig(
-        level=log_level,
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('app_debug.log'),
-        ],
-    )
-    # Add proper JSON formatter to all handlers
-    for handler in logging.getLogger().handlers:
-        handler.setFormatter(JsonFormatter())
+    # Cloud Run/GCE/GKE standard is stdout/stderr
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter())
+    
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Remove existing handlers to avoid duplicates
+    for h in root_logger.handlers[:]:
+        root_logger.removeHandler(h)
+        
+    root_logger.addHandler(handler)
+    
+    # Optionally mute noisy loggers
+    logging.getLogger("uvicorn.access").handlers = [handler]
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
 
 

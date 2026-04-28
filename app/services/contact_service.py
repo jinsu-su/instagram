@@ -322,20 +322,34 @@ class ContactService:
         
         system_prompt = system_prompt or "당신은 인스타그램 브랜드 어시스턴트입니다."
         
-        # Knowledge Base Integration
+        # Knowledge Base Integration: Support both local and remote (GCS) files
         if kb_url:
             try:
-                # URL is like /static/uploads/filename.ext -> local path: static/uploads/filename.ext
-                local_path = kb_url.lstrip("/")
-                if os.path.exists(local_path):
-                    if local_path.endswith(".txt"):
+                kb_content = None
+                # Case 1: Remote URL (GCS) - Standard for Cloud Run
+                if kb_url.startswith("http"):
+                    if kb_url.endswith(".txt"):
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            kb_resp = await client.get(kb_url)
+                            if kb_resp.is_success:
+                                kb_content = kb_resp.text
+                                logger.info(f"📚 Successfully fetched KB content from URL: {kb_filename}")
+                
+                # Case 2: Local Fallback
+                else:
+                    local_path = kb_url.lstrip("/")
+                    if os.path.exists(local_path) and local_path.endswith(".txt"):
                         with open(local_path, "r", encoding="utf-8") as f:
                             kb_content = f.read()
-                            system_prompt = f"{system_prompt}\n\n[참고 파일 정보]\n{kb_content}"
-                    elif local_path.endswith(".pdf") or local_path.endswith(".docx"):
-                        system_prompt = f"{system_prompt}\n\n[참고 파일]: {kb_filename} 항목이 답변 참조용으로 연결되어 있습니다."
+                            logger.info(f"📚 Successfully read local KB file: {local_path}")
+
+                if kb_content:
+                    system_prompt = f"{system_prompt}\n\n[참고 지식 데이터]\n{kb_content}"
+                elif kb_url.endswith((".pdf", ".docx", ".xlsx")):
+                    # Non-text files act as context hints
+                    system_prompt = f"{system_prompt}\n\n[참고 파일 연결됨]: {kb_filename} (파일 내용이 AI 컨텍스트에 요약되어 반영되어 있습니다.)"
             except Exception as e:
-                logger.error(f"Failed to read KB file: {e}")
+                logger.error(f"Failed to load KB data: {e}")
 
         tags_str = ", ".join(tags) if tags else "정보 없음"
         # Context includes cumulative summary AND recent chat history

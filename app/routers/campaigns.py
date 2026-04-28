@@ -26,7 +26,7 @@ async def list_campaigns(
         campaigns = await campaign_service.get_campaigns(db, customer_id)
         return {"campaigns": campaigns, "total": len(campaigns)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="서버 내부 오류가 발생했습니다.")
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
 async def update_campaign(
@@ -49,7 +49,7 @@ async def update_campaign(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="서버 내부 오류가 발생했습니다.")
 
 @router.post("/create", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
@@ -65,7 +65,7 @@ async def create_campaign(
         campaign = await campaign_service.create_campaign(db, customer_id, payload)
         return campaign
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="서버 내부 오류가 발생했습니다.")
 
 # Broadcast endpoints
 @router.post("/broadcast/preview")
@@ -87,7 +87,7 @@ async def preview_broadcast_audience(
         result = await broadcast_service.preview_audience(customer_id, segment)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="서버 내부 오류가 발생했습니다.")
 
 @router.post("/broadcast/send")
 async def send_broadcast(
@@ -122,12 +122,7 @@ async def send_broadcast(
             scheduled_at=scheduled_at
         )
         return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="브로드캐스트 전송 중 오류가 발생했습니다.")
 
 @router.get("/{campaign_id}/broadcast/stats")
 async def get_broadcast_stats(
@@ -149,9 +144,5 @@ async def get_broadcast_stats(
         broadcast_service = BroadcastService(db)
         stats = await broadcast_service.get_broadcast_stats(campaign_id)
         return stats
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="통계 데이터를 불러오지 못했습니다.")

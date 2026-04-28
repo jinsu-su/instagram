@@ -145,28 +145,44 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         }
     }
 
-security_scheme = HTTPBearer()
+from fastapi import Request
+security_scheme = HTTPBearer(auto_error=False) 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> Customer:
     """
     Dependency to get the current authenticated user from JWT.
+    Supports both Authorization header and 'access_token' cookie.
     """
-    try:
+    token = None
+    
+    # 1. Try to get token from 'access_token' cookie (Secure & HttpOnly)
+    token = request.cookies.get("access_token")
+    
+    # 2. Try to get token from Authorization header if cookie is missing
+    if not token and credentials:
         token = credentials.credentials
-        logger.info(f"🔑 get_current_user: Received token (first 20 chars): {token[:20]}...")
+        
+    if not token:
+        logger.error("❌ get_current_user: No token found in cookie or header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="로그인이 필요한 서비스입니다.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        logger.info(f"🔑 get_current_user: Authenticating with token (first 10 chars): {token[:10]}...")
         
         payload = decode_access_token(token)
-        # Security: Do not log the full payload in production to avoid leaking PII/metadata
-        # logger.info(f"🔑 get_current_user: Decoded payload: {payload}")
-        
         if not payload or "sub" not in payload:
-            logger.error("❌ get_current_user: Invalid payload or missing 'sub'")
+            logger.error("❌ get_current_user: Invalid payload or signature")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="유효하지 않은 인증 토큰입니다.",
+                detail="유효하지 않은 인증 토큰입니다. 다시 로그인해주세요.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -177,22 +193,22 @@ async def get_current_user(
         customer = result.scalar_one_or_none()
         
         if not customer:
-            logger.error(f"❌ get_current_user: Customer {user_id} not found in database")
+            logger.error(f"❌ get_current_user: Customer {user_id} not found")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="사용자를 찾을 수 없습니다.",
+                detail="사용자 계정을 찾을 수 없습니다.",
             )
         
-        logger.info(f"✅ get_current_user: Successfully authenticated user {customer.email} (ID: {customer.id})")
+        logger.info(f"✅ get_current_user: Authenticated {customer.email}")
         return customer
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ get_current_user: Unexpected error: {str(e)}")
+        logger.error(f"❌ get_current_user Error: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="서버 내부에 인증을 처리하는 중 일시적인 오류가 발생했습니다. 잠시 후 시도해주세요.",
+            detail="인증 처리 중 오류가 발생했습니다.",
         )
 
 @router.get("/verify")

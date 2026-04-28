@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 import httpx
 
@@ -84,7 +84,8 @@ class CustomerService:
             results=results,
         )
 
-    async def get_customer(self, db: AsyncSession, customer_id: UUID) -> Optional[CustomerResponse]:
+    async def get_customer(self, db: AsyncSession, customer_id: UUID, background_tasks = None) -> Optional[CustomerResponse]:
+        """고객 정보 조회 (프로필 사진 캐싱 및 비동기 업데이트 적용)"""
         customer = await db.get(Customer, customer_id)
         if not customer:
             return None
@@ -92,62 +93,60 @@ class CustomerService:
         # Ensure we have the latest data from the DB
         await db.refresh(customer)
         
-        # Load related Instagram account
+        # Load related Instagram account (cached/DB)
         instagram_result = await db.execute(
             select(InstagramAccount).where(InstagramAccount.customer_id == customer_id)
         )
         instagram_account = instagram_result.scalars().first()
         
-        # Load OAuth account to get profile picture
-        oauth_result = await db.execute(
-            select(OAuthAccount).where(
-                OAuthAccount.customer_id == customer_id,
-                OAuthAccount.provider == OAuthProvider.META
-            )
-        )
-        oauth_account = oauth_result.scalars().first()
-        
         instagram_account_response = None
         if instagram_account and instagram_account.access_token:
             instagram_account_response = InstagramAccountResponse.model_validate(instagram_account)
         
-        # Get profile picture URL from OAuth account (stored in notes or access token info)
-        profile_picture = None
-        if oauth_account and oauth_account.access_token:
-            # Try to get profile picture from Facebook API using access token
-            try:
-                async with httpx.AsyncClient() as client:
-                    # Request maximum size profile picture - try multiple sizes
-                    # Facebook Graph API supports different sizes, try largest first
-                    sizes_to_try = [
-                        ("picture.width(1000).height(1000)", "1000x1000"),
-                        ("picture.width(720).height(720)", "720x720"),
-                        ("picture.width(500).height(500)", "500x500"),
-                        ("picture.type(large)", "large"),
-                    ]
-                    
-                    # Instagram Business Login: Always use graph.instagram.com fields
-                    # (id, username, profile_picture_url)
-                    try:
-                        response = await client.get(
-                            f"https://graph.instagram.com/v25.0/me",
-                            params={
-                                "access_token": oauth_account.access_token,
-                                "fields": "id,username,profile_picture_url",
-                            },
-                            timeout=5.0,
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            profile_picture = data.get("profile_picture_url")
-                            if profile_picture:
-                                logger.info(f"Successfully got Instagram profile picture: {profile_picture[:100]}...")
-                    except Exception as e:
-                        logger.warning(f"Failed to get Instagram profile info: {str(e)}")
-            except Exception as e:
-                logger.warning(f"Failed to get profile picture: {str(e)}")
-                pass  # If failed to get picture, continue without it
+        # Identity picture: Use DB cache first
+        profile_picture = customer.profile_picture_url
         
+        # If no profile picture in DB, or every few logins, we can update it in background
+        async def _update_profile_pic_task():
+            try:
+                # Fresh session for background task
+                from app.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as bg_db:
+                    # Get Meta OAuth access token
+                    oauth_result = await bg_db.execute(
+                        select(OAuthAccount).where(
+                            OAuthAccount.customer_id == customer_id,
+                            OAuthAccount.provider == OAuthProvider.META
+                        )
+                    )
+                    oauth_account = oauth_result.scalars().first()
+                    
+                    if oauth_account and oauth_account.access_token:
+                        async with httpx.AsyncClient() as client:
+                            response = await client.get(
+                                f"https://graph.instagram.com/v25.0/me",
+                                params={
+                                    "access_token": oauth_account.access_token,
+                                    "fields": "profile_picture_url",
+                                },
+                                timeout=10.0,
+                            )
+                            if response.status_code == 200:
+                                new_url = response.json().get("profile_picture_url")
+                                if new_url:
+                                    # Update customer in DB
+                                    bg_customer = await bg_db.get(Customer, customer_id)
+                                    if bg_customer:
+                                        bg_customer.profile_picture_url = new_url
+                                        await bg_db.commit()
+                                        logger.info(f"✅ Background profile pic update success for {customer_id}")
+            except Exception as e:
+                logger.error(f"Error in bg_update_profile_pic_task: {e}")
+
+        # Trigger background update if cache is empty or on every request (it's non-blocking)
+        if background_tasks:
+            background_tasks.add_task(_update_profile_pic_task)
+
         return CustomerResponse(
             id=customer.id,
             name=customer.name,
@@ -164,7 +163,7 @@ class CustomerService:
             updated_at=customer.updated_at,
             instagram_account=instagram_account_response,
             profile_picture=profile_picture,
-            integration_status=customer.integration_status or DEFAULT_INTEGRATION_STATUS,
+            integration_status=customer.integration_status or "PENDING",
         )
 
     async def create_customer(
@@ -323,11 +322,11 @@ class CustomerService:
                 await db.flush()
                 await db.refresh(customer)
                 is_new = True
-                logger.info(f"Created new customer: customer_id={customer.id}, email={customer.email}")
+                logger.info(f"Created new customer: customer_id={customer.id}")
             except (IntegrityError, DBAPIError) as e:
                 error_str = str(e).lower()
                 if "unique" in error_str or "duplicate" in error_str:
-                    logger.warning(f"Unique constraint violation, searching for existing customer: {str(e)}")
+                    logger.warning(f"Unique constraint violation, searching for existing record.")
                     await db.rollback()
                     
                     # Retry search
@@ -407,6 +406,7 @@ class CustomerService:
         email: str | None,
         access_token: str,
         refresh_token: str | None = None,
+        profile_picture_url: str | None = None,
     ) -> CustomerUpsertResult:
         """Create or update customer and OAuth account from Google OAuth."""
         if not email:
@@ -450,6 +450,7 @@ class CustomerService:
                 customer = Customer(
                     name=name or email.split("@")[0],
                     email=email,
+                    profile_picture_url=profile_picture_url,
                     signup_source="GOOGLE",
                     marketing_opt_in=False,
                     terms_agreed_at=terms_agreed_at,
@@ -464,7 +465,7 @@ class CustomerService:
             except (IntegrityError, DBAPIError) as e:
                 error_str = str(e).lower()
                 if "unique" in error_str or "duplicate" in error_str:
-                    logger.warning(f"Unique constraint violation, searching for existing customer: {str(e)}")
+                    logger.warning(f"Unique constraint violation, searching for existing record.")
                     await db.rollback()
                     
                     # Retry search
@@ -513,6 +514,10 @@ class CustomerService:
             if refresh_token:
                 oauth_account.refresh_token = refresh_token
             oauth_account.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            
+        # [NEW] Caching profile picture from Google if provided
+        if profile_picture_url:
+            customer.profile_picture_url = profile_picture_url
         
         await db.commit()
         
@@ -669,7 +674,21 @@ class CustomerService:
     async def get_dashboard_stats(self, db: AsyncSession, customer_id: UUID) -> dict:
         """
         대시보드 통계 데이터 (총 고객 수, 활성 캠페인 수 등)를 반환합니다.
+        [Optimization] 30초 인메모리 캐시 적용으로 DB 부하 최소화
         """
+        if not hasattr(self, '_stats_cache'):
+            self._stats_cache = {}
+            
+        now = time.monotonic()
+        cache_key = f"stats:{customer_id}"
+        
+        # 30초 이내의 캐시가 있으면 즉시 반환
+        if cache_key in self._stats_cache:
+            cached_val, cached_time = self._stats_cache[cache_key]
+            if now - cached_time < 30:
+                logger.info(f"⚡ Statistics Cache Hit: customer {customer_id}")
+                return cached_val
+
         stats = {
             "total_contacts": 0,
             "active_automations": 0,
@@ -679,49 +698,39 @@ class CustomerService:
         }
         
         try:
-            # 1. Total Contacts
-            try:
-                contact_count_query = select(func.count(Contact.id)).where(Contact.customer_id == customer_id)
-                stats["total_contacts"] = (await db.execute(contact_count_query)).scalar() or 0
-            except Exception as e:
-                logger.error(f"Error fetching total_contacts: {e}")
-            
-            # 2. Active Automations (Broadcast 제외)
-            try:
-                campaign_count_query = select(func.count(Campaign.id)).where(
+            # Run all count queries in parallel
+            queries = [
+                select(func.count(Contact.id)).where(Contact.customer_id == customer_id),
+                select(func.count(Campaign.id)).where(
                     Campaign.customer_id == customer_id,
                     Campaign.is_active == True,
                     Campaign.type != 'BROADCAST'
-                )
-                stats["active_automations"] = (await db.execute(campaign_count_query)).scalar() or 0
-            except Exception as e:
-                logger.error(f"Error fetching active_automations: {e}")
-            
-            # 3. Total Broadcasts Sent
-            try:
-                broadcast_count_query = select(func.count(Campaign.id)).where(
+                ),
+                select(func.count(Campaign.id)).where(
                     Campaign.customer_id == customer_id,
                     Campaign.type == 'BROADCAST',
                     Campaign.sent_at.isnot(None)
+                ),
+                select(func.count(AutomationActivity.id)).where(
+                    AutomationActivity.customer_id == customer_id, 
+                    AutomationActivity.event_type == 'AI_CHAT_REPLY'
+                ),
+                select(func.count(AutomationActivity.id)).where(
+                    AutomationActivity.customer_id == customer_id, 
+                    AutomationActivity.event_type == 'FLOW_TRIGGER'
                 )
-                stats["total_broadcasts_sent"] = (await db.execute(broadcast_count_query)).scalar() or 0
-            except Exception as e:
-                logger.error(f"Error fetching total_broadcasts_sent: {e}")
+            ]
             
-            # 4. Total AI Replies
-            try:
-                stats["total_ai_replies"] = (await db.execute(select(func.count(AutomationActivity.id)).where(AutomationActivity.customer_id == customer_id, AutomationActivity.event_type == 'AI_CHAT_REPLY'))).scalar() or 0
-            except Exception as e:
-                logger.error(f"Error fetching total_ai_replies: {e}")
+            results = await asyncio.gather(*[db.execute(q) for q in queries])
+            
+            stats["total_contacts"] = results[0].scalar() or 0
+            stats["active_automations"] = results[1].scalar() or 0
+            stats["total_broadcasts_sent"] = results[2].scalar() or 0
+            stats["total_ai_replies"] = results[3].scalar() or 0
+            stats["total_flow_triggers"] = results[4].scalar() or 0
 
-            # 5. Total Flow Triggers
-            try:
-                stats["total_flow_triggers"] = (await db.execute(select(func.count(AutomationActivity.id)).where(AutomationActivity.customer_id == customer_id, AutomationActivity.event_type == 'FLOW_TRIGGER'))).scalar() or 0
-            except Exception as e:
-                logger.error(f"Error fetching total_flow_triggers: {e}")
-
-        except Exception as e:
-            logger.error(f"Error in get_dashboard_stats wrapper: {e}")
+        except Exception:
+            logger.error("Error occurred while fetching dashboard statistics.")
             
         return stats
 
@@ -796,6 +805,145 @@ class CustomerService:
             logger.error(f"Error fetching automation statistics: {e}")
             
         return stats
+
+    async def get_basic_dashboard_summary(self, db: AsyncSession, customer_id: UUID, days: int = 7) -> dict:
+        """
+        Basic 요금제용 성과 요약:
+        - 오늘 자동 처리 건수 / 오늘 실패 건수
+        - 최근 7일 자동 처리 추이
+        - 반응 많은 게시물 Top (최근 미디어 기반)
+        """
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import select, func, and_
+        from app.models.automation_activity import AutomationActivity
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = today_start - timedelta(days=max(days - 1, 0))
+
+        # "자동 처리"로 간주할 이벤트 (AI 이벤트는 제외)
+        auto_event_types = ("FLOW_TRIGGER", "COMMENT_REPLY", "STORY_REPLY", "DM_AUTO_REPLY")
+
+        # 오늘 자동 처리 / 실패
+        q_today_success = select(func.count(AutomationActivity.id)).where(
+            AutomationActivity.customer_id == customer_id,
+            AutomationActivity.created_at >= today_start,
+            AutomationActivity.status == "SUCCESS",
+            AutomationActivity.event_type.in_(auto_event_types),
+        )
+        q_today_failed = select(func.count(AutomationActivity.id)).where(
+            AutomationActivity.customer_id == customer_id,
+            AutomationActivity.created_at >= today_start,
+            AutomationActivity.status != "SUCCESS",
+            AutomationActivity.event_type.in_(auto_event_types),
+        )
+
+        # 최근 N일 일별 자동 처리 추이
+        q_daily = (
+            select(
+                func.date_trunc("day", AutomationActivity.created_at).label("day"),
+                func.count(AutomationActivity.id).label("count"),
+            )
+            .where(
+                AutomationActivity.customer_id == customer_id,
+                AutomationActivity.created_at >= cutoff,
+                AutomationActivity.status == "SUCCESS",
+                AutomationActivity.event_type.in_(auto_event_types),
+            )
+            .group_by(func.date_trunc("day", AutomationActivity.created_at))
+            .order_by(func.date_trunc("day", AutomationActivity.created_at))
+        )
+
+        today_automated = (await db.execute(q_today_success)).scalar() or 0
+        today_failed = (await db.execute(q_today_failed)).scalar() or 0
+
+        daily_rows = (await db.execute(q_daily)).all()
+        day_to_count = {r.day.date(): int(r.count or 0) for r in daily_rows}
+
+        last_days = []
+        for i in range(days):
+            d = (today_start.date() - timedelta(days=(days - 1 - i)))
+            last_days.append(day_to_count.get(d, 0))
+
+        # Top posts: IG media (최근 10개) 기반 score = likes + comments
+        top_posts = []
+        try:
+            account = await self.get_instagram_account(db, customer_id)
+            if account and account.access_token and account.instagram_user_id:
+                # Use cached media if fresh enough (same TTL as ig-media router)
+                from datetime import timedelta as _td
+                CACHE_TTL_SECONDS = 300
+                use_cache = False
+                if account.last_insights_fetch:
+                    age = datetime.utcnow() - account.last_insights_fetch
+                    if age < _td(seconds=CACHE_TTL_SECONDS):
+                        use_cache = True
+
+                media_items = []
+                if use_cache and account.cached_media_data:
+                    media_items = list(account.cached_media_data or [])
+                else:
+                    import httpx
+                    access_token = account.access_token
+                    ig_user_id = account.instagram_user_id
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        if str(access_token).startswith("IG"):
+                            resp = await client.get(
+                                "https://graph.instagram.com/me/media",
+                                params={
+                                    "access_token": access_token,
+                                    "fields": "id,caption,media_type,media_url,thumbnail_url,comments_count,like_count,timestamp,permalink",
+                                    "limit": 10,
+                                },
+                            )
+                        else:
+                            resp = await client.get(
+                                f"https://graph.instagram.com/v25.0/{ig_user_id}/media",
+                                params={
+                                    "access_token": access_token,
+                                    "fields": "id,caption,media_type,media_url,thumbnail_url,comments_count,like_count,timestamp,permalink",
+                                    "limit": 10,
+                                },
+                            )
+                        if resp.is_success:
+                            data = resp.json() or {}
+                            media_items = data.get("data", []) if isinstance(data, dict) else []
+
+                            # Cache for stability
+                            account.cached_media_data = media_items
+                            account.last_insights_fetch = datetime.utcnow()
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(account, "cached_media_data")
+                            await db.commit()
+                        else:
+                            media_items = list(account.cached_media_data or [])
+
+                scored = []
+                for m in media_items[:10]:
+                    like_count = int(m.get("like_count") or 0)
+                    comments_count = int(m.get("comments_count") or 0)
+                    score = like_count + comments_count
+                    scored.append({
+                        "id": str(m.get("id") or ""),
+                        "media_url": m.get("media_url") or m.get("url"),
+                        "thumbnail_url": m.get("thumbnail_url"),
+                        "caption": (m.get("caption") or "")[:120],
+                        "like_count": like_count,
+                        "comments_count": comments_count,
+                        "score": score,
+                    })
+                scored = [s for s in scored if s["id"]]
+                scored.sort(key=lambda x: x["score"], reverse=True)
+                top_posts = scored[:3]
+        except Exception as e:
+            logger.error(f"basic_dashboard_summary top_posts error: {e}")
+
+        return {
+            "today_automated": int(today_automated),
+            "today_failed": int(today_failed),
+            "last7_daily_automated": last_days,
+            "top_posts": top_posts,
+        }
 
     async def get_recent_conversations_for_ai(self, db: AsyncSession, customer_id: UUID, limit: int = 15) -> List[Dict[str, Any]]:
         """

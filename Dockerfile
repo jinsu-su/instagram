@@ -38,8 +38,12 @@ USER appuser
 EXPOSE 8080
 
 # Command to run the application using Gunicorn and Uvicorn workers
+# Production Hardening: Redirect logs to stdout/stderr for cloud monitoring
 CMD gunicorn app.main:app \
-    --workers 2 \
+    --workers 4 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 0.0.0.0:$PORT \
-    --timeout 120
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info

@@ -390,7 +390,9 @@ const Subscription = ({ customerId, subscriptionStatus, showNotify, onClose, onS
 
     // RENDER: Modal Management View
     if (variant === 'modal') {
-        const isSubscribed = currentPlan !== 'free';
+        const isPaidPlan = currentPlan && !currentPlan.includes('free');
+        const hasHistory = paymentHistory.length > 0;
+        const isCanceled = subscriptionStatus?.status === 'canceled';
 
         return (
             <div className="w-full bg-white rounded-[3rem] overflow-hidden relative font-sans">
@@ -404,125 +406,146 @@ const Subscription = ({ customerId, subscriptionStatus, showNotify, onClose, onS
                 )}
 
                 <div className="p-6 md:p-10 pt-20 md:pt-20 pb-16 md:pb-24 space-y-10">
-                    {/* Active Plan Detail Card */}
+                    {/* Top Section: Plan Status & Highlights */}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
-                        <Card className={`md:col-span-8 ${subscriptionStatus?.status === 'canceled' ? 'bg-indigo-50/30 border-2 border-indigo-100 shadow-xl text-gray-900' : 'bg-gradient-to-br from-indigo-50 via-white to-purple-50 text-gray-900 border border-indigo-100 shadow-xl'} rounded-[2.5rem] overflow-hidden relative transition-all duration-700`}>
-                            {subscriptionStatus?.status !== 'canceled' && <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-100/30 rounded-full -mr-20 -mt-20 blur-3xl"></div>}
-                            <CardContent className="p-6 md:p-10 relative z-10">
-                                <div className="space-y-6 md:space-y-8">
-                                    <div className="flex flex-col items-center text-center space-y-4 md:space-y-6">
-                                        <div className="space-y-2">
-                                            <p className={`text-[10px] md:text-xs font-black uppercase tracking-widest opacity-80 ${subscriptionStatus?.status === 'canceled' ? 'text-indigo-400' : 'text-indigo-400'}`}>현재 활성 플랜</p>
-                                            <h3 className="text-4xl md:text-6xl font-black tracking-tight leading-none break-words bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                                                {String(currentPlan || 'FREE').toUpperCase()} PLAN
+                        <Card className={`md:col-span-8 ${isCanceled ? 'bg-amber-50/30 border-amber-100' : 'bg-gradient-to-br from-indigo-50/50 via-white to-purple-50/50 border-indigo-100'} rounded-[2.5rem] shadow-sm relative overflow-hidden`}>
+                            <CardContent className="p-8 md:p-10 relative z-10">
+                                <div className="flex flex-col md:flex-row justify-between items-center gap-8 text-center md:text-left">
+                                    <div className="space-y-4">
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">현재 이용 중인 플랜</p>
+                                            <h3 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight leading-none">
+                                                {subscriptionStatus?.plan_name && subscriptionStatus.plan_name !== 'free' 
+                                                  ? subscriptionStatus.plan_name.toUpperCase().replace('-', ' ') 
+                                                  : (paymentHistory.length > 0 && paymentHistory[0].status === 'paid' 
+                                                      ? 'BASIC STARTER' 
+                                                      : 'FREE PLAN')}
                                             </h3>
                                         </div>
-                                        <div className={`${subscriptionStatus?.status === 'canceled' ? 'bg-white border-indigo-100 text-indigo-600' : 'bg-white border-indigo-100 text-indigo-600'} backdrop-blur-md rounded-full px-6 md:px-8 py-2 md:py-3 border text-center shadow-sm`}>
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-2 h-2 rounded-full animate-pulse ${subscriptionStatus?.status === 'active' ? 'bg-green-400' :
-                                                    subscriptionStatus?.status === 'canceled' ? 'bg-amber-400' :
-                                                        ['expired', 'past_due'].includes(subscriptionStatus?.status) ? 'bg-red-400' :
-                                                            'bg-gray-400'
-                                                    }`}></div>
-                                                <p className="text-[10px] md:text-xs font-black uppercase tracking-widest">
-                                                    {subscriptionStatus?.status === 'canceled' ? (isKorean ? '해지 예약됨' : 'Canceled') :
-                                                        isKorean ? ({ active: '사용 중', expired: '만료됨', past_due: '결제 실패', trialing: '체험 중' }[subscriptionStatus?.status] || subscriptionStatus?.status || '활성')
-                                                            : (subscriptionStatus?.status || 'Active')}
-                                                </p>
+                                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
+                                            <Badge className={`${(subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? 'bg-green-50 text-green-700 border-green-100' : 
+                                                isCanceled ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100'} px-5 py-2 rounded-full font-black text-xs shadow-sm whitespace-nowrap min-w-fit inline-flex items-center`}>
+                                                <div className={`w-1.5 h-1.5 rounded-full mr-2.5 ${(subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? 'bg-green-500 animate-pulse' : isCanceled ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                                                {isCanceled ? (isKorean ? '해지 예약됨' : 'Canceled') : 
+                                                 (subscriptionStatus?.status === 'active' || (paymentHistory && paymentHistory.length > 0 && paymentHistory[0].status === 'paid')) ? (isKorean ? '사용 중' : 'Active') : (isKorean ? '만료됨' : 'Expired')}
+                                            </Badge>
+                                            
+                                            <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-indigo-50 border border-indigo-100 text-[11px] font-black text-indigo-600 whitespace-nowrap shadow-sm min-w-fit inline-flex">
+                                                <Calendar className="w-3.5 h-3.5" />
+                                                <span>{isKorean ? '다음 결제:' : 'Next Billing:'}</span>
+                                                <span className="font-extrabold tracking-tight ml-1">
+                                                    {subscriptionStatus?.next_billing_date 
+                                                        ? new Date(subscriptionStatus.next_billing_date).toLocaleDateString() 
+                                                        : (paymentHistory.length > 0 
+                                                            ? new Date(new Date(paymentHistory[0].paid_at).setMonth(new Date(paymentHistory[0].paid_at).getMonth() + 1)).toLocaleDateString() 
+                                                            : '-')}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {subscriptionStatus?.status === 'canceled' && (
-                                        <div className="bg-indigo-600/5 border border-indigo-200/50 rounded-[2rem] p-5 md:p-7 flex items-start gap-3 md:gap-5">
-                                            <div className="w-8 h-8 md:w-10 md:h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-200/50">
-                                                <ShieldCheck className="w-5 h-5 md:w-6 h-6" />
+                                    <div className="flex-none flex flex-col items-start gap-12 pt-10 md:pt-0 border-t md:border-t-0 md:border-l border-gray-100/80 md:pl-24 w-full md:w-auto min-w-[320px]">
+                                        <div className="space-y-4 w-full">
+                                            <div className="flex items-center gap-2.5 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] leading-none mb-4">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-200"></div>
+                                                결제 수단
                                             </div>
-                                            <div className="space-y-1 text-left text-gray-600">
-                                                <p className="font-bold text-indigo-900 tracking-tight text-base md:text-lg">
-                                                    {isKorean ? "구독 해지 및 기간 안내" : "Subscription access details"}
-                                                </p>
-                                                <p className="text-xs md:text-sm font-medium leading-relaxed text-indigo-900/70">
-                                                    {isKorean ?
-                                                        `${new Date(subscriptionStatus.next_billing_date).toLocaleDateString()}까지는 프리미엄 기능을 계속 이용하실 수 있으며, 이후 자동 종료됩니다.` :
-                                                        `You can keep using premium features until ${new Date(subscriptionStatus.next_billing_date).toLocaleDateString()}. Changes apply automatically.`}
-                                                </p>
+                                            <div className="space-y-2.5 pl-4 text-left">
+                                                <div className="flex items-center gap-4 whitespace-nowrap">
+                                                    <CreditCard className="w-5 h-5 text-indigo-500" />
+                                                    <p className="text-[16px] font-black text-gray-900 leading-none tracking-tight">
+                                                        {subscriptionStatus?.card_name || paymentHistory[0]?.card_name || (isKorean ? '등록된 카드 없음' : 'No card registered')}
+                                                    </p>
+                                                </div>
+                                                {(subscriptionStatus?.card_number || paymentHistory[0]?.card_number) && (
+                                                    <p className="text-[13px] font-bold text-slate-400 tracking-[0.1em] font-mono whitespace-nowrap opacity-80">
+                                                        {subscriptionStatus?.card_number || paymentHistory[0]?.card_number}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
-                                    )}
 
-                                    <div className={`flex flex-wrap gap-x-6 md:gap-x-10 gap-y-6 pt-8 md:pt-10 border-t ${subscriptionStatus?.status === 'canceled' ? 'border-indigo-100' : 'border-indigo-100'} justify-start items-start text-left w-full`}>
-                                        <div className="space-y-1.5 min-w-[100px] md:min-w-[120px]">
-                                            <p className={`text-[9px] md:text-[10px] font-black uppercase tracking-widest ${subscriptionStatus?.status === 'canceled' ? 'text-indigo-400' : 'text-indigo-400'}`}>결제 수단</p>
-                                            <div className="flex items-center gap-2">
-                                                <CreditCard className={`w-4 h-4 md:w-5 h-5 text-indigo-400`} />
-                                                <p className={`font-black text-sm md:text-lg truncate text-gray-800`}>
-                                                    {subscriptionStatus?.payment_method === 'tosspayments'
-                                                        ? `${subscriptionStatus?.card_name || '카드'}${subscriptionStatus?.card_number ? ` (${subscriptionStatus.card_number})` : ''}`
-                                                        : (subscriptionStatus?.payment_method || '신용카드')}
-                                                </p>
+                                        <div className="space-y-4 w-full">
+                                            <div className="flex items-center gap-2.5 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] leading-none mb-4">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-200"></div>
+                                                최근 결제일
                                             </div>
-                                        </div>
-                                        <div className="space-y-1.5 min-w-[100px] md:min-w-[120px]">
-                                            <p className={`text-[9px] md:text-[10px] font-black uppercase tracking-widest ${subscriptionStatus?.status === 'canceled' ? 'text-indigo-400' : 'text-indigo-400'}`}>최근 결제</p>
-                                            <div className="flex items-center gap-2">
-                                                <Calendar className={`w-4 h-4 md:w-5 h-5 text-indigo-400`} />
-                                                <p className={`font-black text-sm md:text-lg text-gray-800`}>
-                                                    {subscriptionStatus?.last_payment_date ? new Date(subscriptionStatus.last_payment_date).toLocaleDateString() : '-'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-1.5 min-w-[100px] md:min-w-[120px]">
-                                            <p className={`text-[9px] md:text-[10px] font-black uppercase tracking-widest ${subscriptionStatus?.status === 'canceled' ? 'text-indigo-400' : 'text-indigo-400'}`}>
-                                                {subscriptionStatus?.status === 'canceled' ? (isKorean ? '멤버십 종료일' : 'Access Expires') : (isKorean ? '다음 결제 예정' : 'Next Billing')}
-                                            </p>
-                                            <div className="flex items-center gap-2">
-                                                {subscriptionStatus?.status === 'canceled' ? <ShieldCheck className="w-4 h-4 md:w-5 h-5 text-indigo-600" /> : <Zap className={`w-4 h-4 md:w-5 h-5 text-indigo-400`} />}
-                                                <p className={`font-black text-sm md:text-lg text-gray-800`}>
-                                                    {subscriptionStatus?.next_billing_date ? new Date(subscriptionStatus.next_billing_date).toLocaleDateString() : '-'}
+                                            <div className="flex items-center gap-4 pl-4 text-left whitespace-nowrap">
+                                                <Calendar className="w-5 h-5 text-indigo-500" />
+                                                <p className="text-[16px] font-black text-gray-900 leading-none">
+                                                    {subscriptionStatus?.last_payment_date 
+                                                        ? new Date(subscriptionStatus.last_payment_date).toLocaleDateString() 
+                                                        : (paymentHistory[0]?.paid_at ? new Date(paymentHistory[0].paid_at).toLocaleDateString() : '-')}
                                                 </p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
+
+                                {isCanceled && (
+                                    <div className="mt-8 p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+                                        <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                                        <p className="text-xs font-medium text-amber-800 leading-relaxed">
+                                            {isKorean ? 
+                                                `구독 해지 신청이 완료되었습니다. ${new Date(subscriptionStatus.next_billing_date).toLocaleDateString()}까지는 모든 프리미엄 기능을 정상적으로 이용하실 수 있습니다.` :
+                                                `Cancellation is complete. You can keep using all premium features until ${new Date(subscriptionStatus.next_billing_date).toLocaleDateString()}.`}
+                                        </p>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 
-                        {/* Quick Action Card - Cancellation Focus */}
-                        <Card className={`md:col-span-4 ${subscriptionStatus?.status === 'canceled' ? 'bg-rose-50/50 border-rose-100' : 'bg-rose-50/30 border-rose-100'} border rounded-[2.5rem] shadow-sm p-6 md:p-8 flex flex-col justify-between transition-colors duration-500`}>
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-rose-600">
-                                    {subscriptionStatus?.status === 'canceled' ? <ShieldCheck className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-                                    <h4 className="text-xl font-black">
-                                        {subscriptionStatus?.status === 'canceled' ? (isKorean ? '구독 해지 완료' : 'Subscription Canceled') : (isKorean ? '구독 해지 및 관리' : 'Cancel & Manage')}
-                                    </h4>
+                        {/* Action Card: Management vs Upsell */}
+                        <Card className={`md:col-span-12 lg:col-span-4 rounded-[2.5rem] flex flex-col p-8 transition-all duration-500 ${!isPaidPlan ? 'bg-indigo-50/40 backdrop-blur-xl border border-indigo-100/50 shadow-sm shadow-indigo-50' : 'bg-white border border-gray-100'}`}>
+                            {!isPaidPlan ? (
+                                <div className="space-y-6 flex flex-col h-full">
+                                    <div className="space-y-3">
+                                        <h4 className="text-xl font-black text-indigo-900 tracking-tight leading-none pt-2">AI Pro로 업그레이드</h4>
+                                        <p className="text-xs font-medium text-indigo-600/70 leading-relaxed">
+                                            대규모 자동화 엔진과 데이터 기반의 정밀 AI 인사이트로 인스타그램 비즈니스의 압도적인 성장을 실현하세요.
+                                        </p>
+                                    </div>
+                                    <div className="mt-auto space-y-3">
+                                        <Button
+                                            onClick={() => {
+                                                if (onSwitchView) onSwitchView('subscription');
+                                                if (onClose) onClose();
+                                            }}
+                                            className="w-full py-6 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-indigo-100"
+                                        >
+                                            전문가 플랜 보기
+                                        </Button>
+                                        <p className="text-[10px] text-center text-indigo-400 font-bold">언제든 원하는 요금제로 변경 가능합니다.</p>
+                                    </div>
                                 </div>
-                                <p className="text-sm font-medium text-gray-500 leading-relaxed">
-                                    {subscriptionStatus?.status === 'canceled' ?
-                                        (isKorean ? '정기 결제가 성공적으로 중단되었습니다. 다음 결제일부터는 비용이 청구되지 않습니다.' : 'Your recurring payment has been stopped. No more charges will occur.') :
-                                        (isKorean ? '더 이상 서비스를 이용하고 싶지 않으신가요? 해지 시 다음 결제일부터 정기 결제가 중단됩니다.' : 'No longer want to use the service? No more recurring charges will occur.')
-                                    }
-                                </p>
-                            </div>
-                            <div className="space-y-4">
-                                <Button
-                                    onClick={() => setShowCancelConfirm(true)}
-                                    disabled={loading || subscriptionStatus?.status === 'canceled'}
-                                    className={`w-full py-8 rounded-3xl font-black shadow-sm transition-all ${subscriptionStatus?.status === 'canceled' ? 'bg-rose-100/50 border-2 border-rose-200 text-rose-500' : 'bg-white border-2 border-rose-200 text-rose-600 hover:bg-rose-50'}`}
-                                >
-                                    {loading ? <Loader2 className="animate-spin" /> : (subscriptionStatus?.status === 'canceled' ? (isKorean ? '정기 결제 중단됨' : 'Payment Stopped') : (isKorean ? '정기 결제 해지하기' : 'Cancel Subscription'))}
-                                </Button>
-
-                                <button
-                                    onClick={() => {
-                                        if (onSwitchView) onSwitchView('subscription');
-                                        if (onClose) onClose();
-                                    }}
-                                    className="w-full text-center text-xs font-bold text-gray-400 hover:text-indigo-600 transition-colors underline underline-offset-4"
-                                >
-                                    다른 요금제로 변경하고 싶으신가요?
-                                </button>
-                            </div>
+                            ) : (
+                                <div className="space-y-6 flex flex-col h-full">
+                                    <div className="space-y-3">
+                                        <h4 className="text-xl font-black text-gray-900 tracking-tight">구독 관리</h4>
+                                        <p className="text-xs font-medium text-gray-500 leading-relaxed">
+                                            현재 요금제를 변경하거나 정기 결제를 관리합니다. 해지 시 다음 결제 예정일부터 결제가 중단됩니다.
+                                        </p>
+                                    </div>
+                                    <div className="mt-auto space-y-3">
+                                        <Button
+                                            onClick={() => setShowCancelConfirm(true)}
+                                            disabled={loading || isCanceled}
+                                            className={`w-full py-6 rounded-2xl font-black transition-all ${isCanceled ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed' : 'bg-white border-2 border-rose-100 text-rose-500 hover:bg-rose-50'}`}
+                                        >
+                                            {isCanceled ? (isKorean ? '해지 신청 완료' : 'Payment Stopped') : (isKorean ? '정기 결제 해지하기' : 'Cancel Subscription')}
+                                        </Button>
+                                        <button
+                                            onClick={() => {
+                                                if (onSwitchView) onSwitchView('subscription');
+                                                if (onClose) onClose();
+                                            }}
+                                            className="w-full text-center text-xs font-bold text-gray-400 hover:text-indigo-600 transition-colors"
+                                        >
+                                            다른 플랜으로 변경하기
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </Card>
                     </div>
 
@@ -552,42 +575,33 @@ const Subscription = ({ customerId, subscriptionStatus, showNotify, onClose, onS
                             ) : (
                                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar relative">
                                     <table className="w-full border-collapse">
-                                        <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10 shadow-sm">
+                                        <thead className="bg-gray-50/80 border-b border-gray-100 sticky top-0 z-10 backdrop-blur-md shadow-sm">
                                             <tr>
-                                                <th className="px-8 py-5 text-left text-[11px] font-black text-gray-400 uppercase tracking-widest">일시</th>
-                                                <th className="px-8 py-5 text-left text-[11px] font-black text-gray-400 uppercase tracking-widest">플랜</th>
-                                                <th className="px-8 py-5 text-left text-[11px] font-black text-gray-400 uppercase tracking-widest">결제 수단</th>
-                                                <th className="px-8 py-5 text-right text-[11px] font-black text-gray-400 uppercase tracking-widest">금액</th>
-                                                <th className="px-8 py-5 text-center text-[11px] font-black text-gray-400 uppercase tracking-widest">상태</th>
+                                                <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest w-1/4">일시</th>
+                                                <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-1/4">플랜</th>
+                                                <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-widest w-1/4">금액</th>
+                                                <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest w-1/4">상태</th>
                                             </tr>
                                         </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {paymentHistory.map((item) => (
-                                            <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                                                <td className="px-8 py-6 font-bold text-gray-600 text-sm">{new Date(item.paid_at).toLocaleString()}</td>
-                                                <td className="px-8 py-6">
-                                                    <span className="font-black text-gray-900 uppercase">
-                                                        {item.amount >= 149000 ? 'Pro' : (item.amount >= 49000 ? 'Starter' : 'Free')}
-                                                    </span>
-                                                </td>
-                                                <td className="px-8 py-6">
-                                                    <div className="flex items-center gap-2">
-                                                        <CreditCard className="w-4 h-4 text-gray-400" />
-                                                        <span className="font-bold text-gray-600 text-sm">
-                                                            {item.card_name || '카드'} {item.card_number && `(${item.card_number})`}
+                                        <tbody className="divide-y divide-gray-50">
+                                            {paymentHistory.map((item) => (
+                                                <tr key={item.id} className="hover:bg-gray-50/50 transition-colors group">
+                                                    <td className="px-8 py-6 text-left font-bold text-gray-600 text-sm whitespace-nowrap">{new Date(item.paid_at).toLocaleDateString()}</td>
+                                                    <td className="px-8 py-6 text-center">
+                                                        <span className="font-black text-gray-900 uppercase whitespace-nowrap">
+                                                            {item.amount >= 149000 ? 'AI PRO' : (item.amount >= 44000 ? 'PRO' : (item.amount >= 19000 ? 'BASIC STARTER' : 'BASIC'))}
                                                         </span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-8 py-6 text-right font-black text-gray-900">
-                                                    {item.currency === 'KRW' ? `₩${item.amount.toLocaleString()}` : `$${item.amount.toLocaleString()}`}
-                                                </td>
-                                                <td className="px-8 py-6 text-center">
-                                                    <Badge className="bg-green-50 text-green-700 border-green-100 font-bold px-3 py-1">Success</Badge>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                                    </td>
+                                                    <td className="px-8 py-6 text-right font-black text-gray-900 tabular-nums whitespace-nowrap">
+                                                        {item.currency === 'KRW' ? `₩${item.amount.toLocaleString()}` : `$${item.amount.toLocaleString()}`}
+                                                    </td>
+                                                    <td className="px-8 py-6 text-center">
+                                                        <Badge className="bg-green-50 text-green-700 border-green-100 font-bold px-3 py-1 whitespace-nowrap">Success</Badge>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </div>

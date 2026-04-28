@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Any, Dict
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -68,3 +68,20 @@ class AutomationActivityResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class BasicTopPost(BaseModel):
+    id: str
+    media_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    caption: Optional[str] = None
+    like_count: int = 0
+    comments_count: int = 0
+    score: int = 0
+
+
+class BasicDashboardSummaryResponse(BaseModel):
+    today_automated: int = 0
+    today_failed: int = 0
+    last7_daily_automated: List[int] = []
+    top_posts: List[BasicTopPost] = []

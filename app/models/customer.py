@@ -15,6 +15,7 @@ class Customer(Base):
     id = Column(PostgresUUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String(120), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
+    profile_picture_url = Column(Text, nullable=True)
     phone = Column(String(20), nullable=True)
     industry = Column(String(120), nullable=True)
     business_type = Column(String(120), nullable=True)

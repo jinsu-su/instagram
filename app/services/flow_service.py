@@ -63,12 +63,16 @@ class FlowService:
                         comment_id=comment_id
                     )
                 elif action_type == "send_ai_message":
-                    await self._send_ai_message(
-                        account, instagram_id, flow.customer_id,
-                        action.get("prompt"), action.get("reply_type", "dm"),
-                        access_token, page_id, instagram_user_id,
-                        user_message=user_message, comment_id=comment_id, source=source
-                    )
+                    # 🛡️ SECURITY: Basic 플랜 사용자는 AI 메시지 전송 불가 (Premium 전용)
+                    if await self._is_premium_ai_user(flow.customer_id):
+                        await self._send_ai_message(
+                            account, instagram_id, flow.customer_id,
+                            action.get("prompt"), action.get("reply_type", "dm"),
+                            access_token, page_id, instagram_user_id,
+                            user_message=user_message, comment_id=comment_id, source=source
+                        )
+                    else:
+                        logger.warning(f"⚠️ [TIER RESTRICTION] AI action skipped for BASIC customer: {flow.customer_id}")
                 elif action_type == "add_tag":
                     await self._add_tag(flow.customer_id, instagram_id, action.get("tag"))
                 elif action_type == "wait":
@@ -441,7 +445,8 @@ class FlowService:
                 semantic_candidates.append(flow)
                 
         # 2. Second Pass: AI Semantic matching (If needed)
-        if semantic_candidates and settings.google_api_key:
+        # 🛡️ SECURITY: AI 매칭 기능은 Premium (ai- 시작 플랜) 사용자 전용입니다.
+        if semantic_candidates and settings.google_api_key and await self._is_premium_ai_user(customer_id):
             logger.info(f"Checking {len(semantic_candidates)} flows via AI Semantic matching")
             api_key = settings.google_api_key.get_secret_value()
             genai.configure(api_key=api_key)
@@ -493,3 +498,27 @@ class FlowService:
                 logger.error(f"AI Semantic matching failed: {e}")
 
         return None
+
+    async def _is_premium_ai_user(self, customer_id: UUID) -> bool:
+        """
+        🛡️ 고객의 구독 플랜이 AI 기능을 지원하는지 확인합니다.
+        'ai-' 로 시작하는 모든 플랜(ai-starter, ai-pro 등)을 프리미엄으로 간주합니다.
+        """
+        try:
+            from app.models.subscription import Subscription
+            result = await self.db.execute(
+                select(Subscription).where(Subscription.customer_id == customer_id)
+            )
+            sub = result.scalar_one_or_none()
+            
+            # 구독 정보가 없거나 'free', 'basic-' 계열은 AI 기능 차단
+            if not sub or not sub.plan_name:
+                return False
+                
+            plan = sub.plan_name.lower()
+            # AI 플랜(ai-starter, ai-pro, ai-free 포함)만 허용
+            # 단, status가 active여야 함
+            return plan.startswith("ai-") and sub.status == "active"
+        except Exception as e:
+            logger.error(f"Error checking premium status for {customer_id}: {e}")
+            return False

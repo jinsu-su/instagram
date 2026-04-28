@@ -23,9 +23,15 @@ async def instagram_basic_login(
     customer_id: str = Query(..., description="연동할 고객 ID"),
     redirect_uri: str | None = Query(default=None, description="연동 후 돌아갈 URL"),
     oauth_service: InstagramBasicOAuthService = Depends(InstagramBasicOAuthService.from_settings),
+    request: Request = None,
 ) -> AuthRedirect:
     """JSON으로 인증 URL 반환"""
-    return oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri)
+    base_url = None
+    if request:
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.url.netloc)
+        base_url = f"{proto}://{host}"
+    return oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri, base_url=base_url)
 
 
 @router.get("/login/redirect")
@@ -36,11 +42,13 @@ async def instagram_basic_login_redirect(
     oauth_service: InstagramBasicOAuthService = Depends(InstagramBasicOAuthService.from_settings),
 ):
     """인스타그램 로그인 페이지로 직접 리다이렉트 (302)"""
-    auth_data = oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri)
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    base_url = f"{proto}://{host}"
+    auth_data = oauth_service.build_authorization_url(customer_id=customer_id, redirect_uri=redirect_uri, base_url=base_url)
     return RedirectResponse(url=str(auth_data.authorization_url), status_code=status.HTTP_302_FOUND)
 
 
-@router.get("/callback")
 @router.get("/callback")
 async def instagram_basic_callback(
     code: str | None = Query(default=None),
@@ -48,6 +56,7 @@ async def instagram_basic_callback(
     error: str | None = Query(default=None),
     error_reason: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
+    request: Request = None,
 ):
     """
     Step 1: Instant Bridge Response
@@ -113,8 +122,8 @@ async def instagram_basic_callback(
         </div>
 
         <script>
-            // Background call to finalize endpoint
-            const finalizeUrl = `{api_base}/auth/instagram-basic/finalize?code={code}&state={state}`;
+            // Background call to finalize endpoint using current origin to maintain ngrok domain context
+            const finalizeUrl = window.location.origin + "/auth/instagram-basic/finalize?code={code}&state={state}";
             
             fetch(finalizeUrl)
                 .then(response => response.json())
@@ -138,6 +147,7 @@ async def instagram_basic_callback(
 
 @router.get("/finalize")
 async def instagram_basic_finalize(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     oauth_service: InstagramBasicOAuthService = Depends(InstagramBasicOAuthService.from_settings),
@@ -150,7 +160,12 @@ async def instagram_basic_finalize(
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
-    customer_id, redirect_after, page_id_missing, transfer_required, page_id = await oauth_service.handle_callback(code=code, state=state, db=db)
+    # Use request.base_url but respect X-Forwarded-Proto if available (common for ngrok/proxies)
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    base_url = f"{proto}://{host}"
+    
+    customer_id, redirect_after, page_id_missing, transfer_required, page_id = await oauth_service.handle_callback(code=code, state=state, db=db, base_url=base_url)
 
     if redirect_after:
         redirect_url = redirect_after

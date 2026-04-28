@@ -36,7 +36,6 @@ class InstagramBasicOAuthService:
         if not (
             self.settings.instagram_basic_app_id
             and self.settings.instagram_basic_app_secret
-            and self.settings.instagram_basic_redirect_uri
         ):
             raise RuntimeError("Instagram basic login environment variables are not configured.")
 
@@ -48,7 +47,7 @@ class InstagramBasicOAuthService:
     ) -> "InstagramBasicOAuthService":
         return cls(settings=settings, customer_service=customer_service)
 
-    def build_authorization_url(self, *, customer_id: str, redirect_uri: str | None = None) -> AuthRedirect:
+    def build_authorization_url(self, *, customer_id: str, redirect_uri: str | None = None, base_url: str | None = None) -> AuthRedirect:
         # Instagram Login for Business (Official Instagram Business Login)
         # https://developers.facebook.com/docs/instagram-api/guides/business-login
         # Instagram OAuth 엔드포인트를 사용하여 Instagram 비즈니스 계정 로그인
@@ -74,9 +73,27 @@ class InstagramBasicOAuthService:
         # Instagram-Branded Business Login URL (Instagram Login for Business)
         auth_url = "https://www.instagram.com/oauth/authorize"
         
+        # Determine redirect_uri: Prefer the public API_BASE_URL (ngrok) over the incoming request's host
+        if self.settings.api_base_url:
+            public_base = str(self.settings.api_base_url).rstrip("/")
+            used_redirect_uri = f"{public_base}/auth/instagram-basic/callback"
+        elif base_url:
+            used_redirect_uri = f"{base_url.rstrip('/')}/auth/instagram-basic/callback"
+        else:
+            used_redirect_uri = str(self.settings.instagram_basic_redirect_uri)
+            
+        state_payload = {
+            "customer_id": customer_id,
+            "redirect_uri": redirect_uri,  # Original frontend redirect (dashboard)
+            "backend_callback": used_redirect_uri, # Exact backend callback used in Step 1
+            "nonce": secrets.token_urlsafe(16),
+            "flow_type": "instagram_business_login",
+        }
+        state = dumps_state(state_payload)
+        
         query = {
             "client_id": self.settings.instagram_basic_app_id, # Official Instagram App ID
-            "redirect_uri": str(self.settings.instagram_basic_redirect_uri),
+            "redirect_uri": used_redirect_uri,
             "scope": business_scope,
             "response_type": "code",
             "state": state,
@@ -87,11 +104,11 @@ class InstagramBasicOAuthService:
         logger.info(
             "Instagram Business Login URL 생성: customer_id=%s redirect_uri=%s",
             customer_id,
-            self.settings.instagram_basic_redirect_uri,
+            used_redirect_uri,
         )
         return AuthRedirect(authorization_url=full_auth_url, state=state)
 
-    async def handle_callback(self, code: str, state: str, db: AsyncSession) -> Tuple[str, str, bool, bool, Optional[str]]:
+    async def handle_callback(self, code: str, state: str, db: AsyncSession, base_url: str | None = None) -> Tuple[str, str, bool, bool, Optional[str]]:
         try:
             state_payload = loads_state(state)
         except Exception as exc:
@@ -103,25 +120,44 @@ class InstagramBasicOAuthService:
             raise HTTPException(status_code=500, detail="Instagram 설정이 누락되었습니다. 관리자에게 문의하세요.")
 
         customer_id_from_state = state_payload.get("customer_id")
+        backend_callback_from_state = state_payload.get("backend_callback")
         
-        # Exchange code for Instagram User Token (Short-lived)
-        # Official Doc: POST to https://api.instagram.com/oauth/access_token
+        # Step 1: Exchange code for Instagram User Token (Short-lived)
+        # Determine redirect_uri: Must IDENTICALLY match the one used during authorization.
+        if backend_callback_from_state:
+            used_redirect_uri = backend_callback_from_state
+        elif self.settings.api_base_url:
+            public_base = str(self.settings.api_base_url).rstrip("/")
+            used_redirect_uri = f"{public_base}/auth/instagram-basic/callback"
+        elif base_url:
+            used_redirect_uri = f"{base_url.rstrip('/')}/auth/instagram-basic/callback"
+        else:
+            used_redirect_uri = str(self.settings.instagram_basic_redirect_uri)
+            
         token_url = self.TOKEN_URL
         data = {
             "client_id": self.settings.instagram_basic_app_id, 
             "client_secret": self.settings.instagram_basic_app_secret.get_secret_value(),
             "grant_type": "authorization_code",
-            "redirect_uri": str(self.settings.instagram_basic_redirect_uri),
+            "redirect_uri": used_redirect_uri,
             "code": code,
         }
         
+        logger.info(
+            "Instagram Step 2 (Token Exchange) 준비: used_redirect_uri=%s (len=%d, repr=%s)",
+            used_redirect_uri,
+            len(used_redirect_uri),
+            repr(used_redirect_uri),
+        )
+        
         async with httpx.AsyncClient() as client:
             # Step 1: Get Short-lived Token
+            logger.info("Instagram Token Exchange Request: url=%s, data=%s", token_url, {k: (v if k != 'client_secret' else '***') for k, v in data.items()})
             resp = await client.post(token_url, data=data)
             
             if resp.status_code != 200:
                 error_body = resp.text
-                logger.error(f"Instagram Business Token Exchange Failed: status={resp.status_code}, body={error_body}")
+                logger.error(f"Instagram Business Token Exchange Failed: status={resp.status_code}, body={error_body}, data_sent={ {k: (v if k != 'client_secret' else '***') for k, v in data.items()} }")
                 
                 # Check if this is a "code already used" error
                 try:
@@ -157,7 +193,7 @@ class InstagramBasicOAuthService:
             user_id = short_token_data.get("user_id")
             
             if not short_access_token:
-                logger.error(f"No access_token found in response: {token_json}")
+                logger.error("No access_token found in Instagram business token response.")
                 raise HTTPException(status_code=400, detail="액세스 토큰을 찾을 수 없습니다.")
 
             # Delegating success processing...

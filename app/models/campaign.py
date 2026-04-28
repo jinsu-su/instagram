@@ -10,10 +10,10 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    customer_id = Column(UUID(as_uuid=True), ForeignKey("customer.id"), nullable=False)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customer.id"), nullable=False, index=True)
     
     # Campaign Type: 'WELCOME', 'STORY_MENTION', 'NO_SHOW', 'ABANDONMENT'
-    type = Column(String, nullable=False)
+    type = Column(String, nullable=False, index=True)
     
     is_active = Column(Boolean, default=False)
     template_id = Column(String, nullable=True) # For predefined templates

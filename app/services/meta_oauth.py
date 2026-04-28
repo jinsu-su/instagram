@@ -40,7 +40,7 @@ class MetaOAuthService:
     ) -> "MetaOAuthService":
         return cls(settings=settings, customer_service=customer_service)
 
-    def build_authorization_url(self, redirect_uri: str | None = None, use_business_login: bool = True) -> Tuple[str, str]:
+    def build_authorization_url(self, redirect_uri: str | None = None, use_business_login: bool = True, base_url: str | None = None) -> Tuple[str, str]:
         """
         Facebook OAuth 인증 URL 생성
         
@@ -66,64 +66,46 @@ class MetaOAuthService:
         state = dumps_state(state_payload)
         
         if use_business_login:
-            # Facebook Login for Business 방식 (공식 문서 권장)
-            # ⚠️ 주의: response_type=token 방식에서는 일부 페이지 권한(pages_read_engagement, pages_manage_metadata)이
-            # 토큰에 포함되지 않을 수 있습니다. 따라서 response_type=code 방식을 사용하여 모든 권한을 확실히 받습니다.
-            # https://developers.facebook.com/docs/instagram-api/getting-started
+            # Determine redirect_uri: Prioritize settings.api_base_url if configured, else use base_url or settings.meta_redirect_uri
+            if self.settings.api_base_url:
+                public_base = str(self.settings.api_base_url).rstrip("/")
+                used_redirect_uri = f"{public_base}/auth/meta/callback"
+            elif base_url:
+                used_redirect_uri = f"{base_url.rstrip('/')}/auth/meta/callback"
+            else:
+                used_redirect_uri = str(self.settings.meta_redirect_uri)
+            
             import json
             query = {
                 "client_id": self.settings.meta_app_id,
-                "redirect_uri": str(self.settings.meta_redirect_uri),
+                "redirect_uri": used_redirect_uri,
                 "scope": ",".join(self.settings.meta_required_scopes),
-                "response_type": "code",  # ⚠️ code 방식으로 변경: 모든 권한을 확실히 받기 위해
-                "display": "page",  # 필수 - 페이지 선택 화면 표시
+                "response_type": "code",
+                "display": "page",
                 "extras": json.dumps({
                     "setup": {
                         "channel": "IG_API_ONBOARDING"
                     }
-                }),  # Instagram API 온보딩
-                # reauthenticate는 "다시 로그인"만 강제하고, 과거 거절된 권한을 다시 띄우지 않을 수 있습니다.
-                # rerequest는 과거 거절된 권한을 다시 요청하는 데 유리합니다.
-                # reauthenticate + rerequest를 함께 시도 (일부 계정에서 계정 재선택/재동의 유도)
-                # Facebook 문서상 auth_type은 string이며, 실무에선 콤마로 복수 값을 넣는 케이스가 있어 이를 사용합니다.
+                }),
                 "auth_type": "rerequest,reauthenticate",
-                # return_scopes를 켜면 OAuth 응답에 granted_scopes/denied_scopes가 포함될 수 있어 디버깅이 쉬워집니다.
                 "return_scopes": "true",
                 "state": state,
             }
         else:
-            # 일반 Facebook OAuth 방식 (response_type=code)
-            # ⚠️ 이 방식이 권장됩니다: 모든 권한이 토큰에 포함됩니다.
-            import json
+            # Traditional Facebook Login (if needed, but mostly use_business_login=True for this app)
             query = {
                 "client_id": self.settings.meta_app_id,
-                "redirect_uri": str(self.settings.meta_redirect_uri),
+                "redirect_uri": f"{base_url.rstrip('/')}/auth/meta/callback" if base_url else str(self.settings.meta_redirect_uri),
                 "scope": ",".join(self.settings.meta_required_scopes),
                 "response_type": "code",
-                "display": "page",  # 페이지 선택 화면 표시
-                "extras": json.dumps({
-                    "setup": {
-                        "channel": "IG_API_ONBOARDING"
-                    }
-                }),  # Instagram API 온보딩 (Facebook Login for Business 기능 유지)
-                # 과거 거절된 권한이 있으면 reauthenticate로는 다시 뜨지 않는 케이스가 있어 rerequest 사용
-                "auth_type": "rerequest,reauthenticate",
-                "return_scopes": "true",
                 "state": state,
             }
         
         auth_url = f"{self.AUTH_BASE_URL}?{urlencode(query)}"
         
-        # 🔍 검수용: OAuth URL에 포함된 권한 로그 출력
-        logger.info("=" * 80)
-        logger.info("🔍 OAuth Authorization URL 생성 (검수용)")
-        logger.info(f"   요청된 권한 목록 ({len(self.settings.meta_required_scopes)}개):")
-        for i, scope in enumerate(self.settings.meta_required_scopes, 1):
-            is_critical = scope in ["pages_read_engagement", "pages_manage_metadata"]
-            marker = "⭐" if is_critical else "  "
-            logger.info(f"   {marker} {i:2d}. {scope}")
-        logger.info(f"   OAuth URL: {auth_url[:200]}...")  # URL이 너무 길 수 있으므로 처음 200자만
-        logger.info("=" * 80)
+        # 🔍 OAuth URL 생성 완료
+        logger.info("✅ OAuth Authorization URL generated successfully.")
+        return auth_url, state
         
         return auth_url, state
 
@@ -150,7 +132,7 @@ class MetaOAuthService:
             except Exception as e:
                 logger.error(f"Failed to exchange for long-lived token: {str(e)}")
                 logger.error(traceback.format_exc())
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"토큰 교환에 실패했습니다: {str(e)}")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meta 토큰 교환에 실패했습니다.")
 
         return await self._process_oauth_success(long_lived_token_final, state_payload, db)
 
@@ -172,7 +154,7 @@ class MetaOAuthService:
         except Exception as e:
             logger.error(f"Failed to fetch user info via graph.instagram.com: {str(e)}")
             logger.error(traceback.format_exc())
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Instagram 사용자 정보를 가져오는 데 실패했습니다: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Instagram 사용자 정보를 연동할 수 없습니다.")
         
         # 🔥 실제로 받은 권한 확인
         try:
@@ -345,8 +327,7 @@ class MetaOAuthService:
                 customer_data = CustomerUpsertResult(id=cid_from_state, is_new=False, transfer_required=False)
                 logger.info(f"Recovered customer_id from state: {customer_data.id}")
             else:
-                logger.error("No customer_id found in state_payload. Cannot return valid result.")
-                raise HTTPException(status_code=500, detail="고객 정보를 생성하거나 찾을 수 없습니다.")
+                raise HTTPException(status_code=500, detail="고객 정보를 처리하는 중 오류가 발생했습니다.")
 
         redirect_uri_from_state = state_payload.get("redirect_uri")
         if redirect_uri_from_state:
@@ -392,67 +373,57 @@ class MetaOAuthService:
             page_id=captured_page_id,
         )
 
-    async def handle_callback(self, code: str, state: str, db: AsyncSession) -> MetaCallbackResult:
+    async def handle_callback(self, code: str, state: str, db: AsyncSession, base_url: str | None = None) -> MetaCallbackResult:
         try:
             state_payload = loads_state(state)
         except Exception as e:
             logger.error(f"Failed to load state: {str(e)}")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"잘못된 상태 파라미터입니다: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="인증 상태 확인에 실패했습니다.")
 
         try:
             logger.info("Exchanging authorization code for access token")
-            short_lived = await self._exchange_code_for_token(code)
+            short_lived = await self._exchange_code_for_token(code, base_url=base_url)
             logger.info("Successfully obtained short-lived token")
         except httpx.HTTPStatusError as e:
-            error_detail = f"토큰 교환에 실패했습니다: {e.response.status_code}"
-            try:
-                error_data = e.response.json()
-                error_detail += f" - {error_data.get('error', {}).get('message', '알 수 없는 오류')}"
-            except:
-                error_detail += f" - {e.response.text[:200]}"
-            logger.error(error_detail)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail)
+            logger.error(f"Token exchange failed: {e.response.status_code}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Meta 토큰 교환에 실패했습니다.")
         except Exception as e:
-            logger.error(f"Unexpected error exchanging code for token: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"토큰 교환에 실패했습니다: {str(e)}")
+            logger.error(f"Unexpected error in token exchange: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="인증 처리 중 서버 오류가 발생했습니다.")
 
         try:
             logger.info("Exchanging short-lived token for long-lived token")
             long_lived_token = await self._exchange_for_long_lived_token(short_lived["access_token"])
             logger.info("Successfully obtained long-lived token")
         except httpx.HTTPStatusError as e:
-            error_detail = f"장기 토큰 교환에 실패했습니다: {e.response.status_code}"
-            try:
-                error_data = e.response.json()
-                error_detail += f" - {error_data.get('error', {}).get('message', '알 수 없는 오류')}"
-            except:
-                error_detail += f" - {e.response.text[:200]}"
-            logger.error(error_detail)
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail)
+            logger.error(f"Long-lived token exchange failed: {e.response.status_code}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="장기 토큰 교환에 실패했습니다.")
         except Exception as e:
-            logger.error(f"Unexpected error exchanging for long-lived token: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"장기 토큰 교환에 실패했습니다: {str(e)}")
+            logger.error(f"Unexpected error in long-lived exchange: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="장기 토큰 처리 중 서버 오류가 발생했습니다.")
 
         # state에서 처리 방식 확인
-        state_payload_for_processing = loads_state(state)
-        return await self._process_oauth_success(long_lived_token, state_payload_for_processing, db)
+        return await self._process_oauth_success(long_lived_token, state_payload, db)
 
-    async def _exchange_code_for_token(self, code: str) -> dict:
-        redirect_uri = str(self.settings.meta_redirect_uri).strip()
+    async def _exchange_code_for_token(self, code: str, base_url: Optional[str] = None) -> dict:
+        """Exchange the code for a short-lived access token."""
+        # Determine redirect_uri: Prioritize settings.api_base_url if configured, else use base_url or settings.meta_redirect_uri
+        if self.settings.api_base_url:
+            public_base = str(self.settings.api_base_url).rstrip("/")
+            redirect_uri = f"{public_base}/auth/meta/callback"
+        elif base_url:
+            redirect_uri = f"{base_url.rstrip('/')}/auth/meta/callback"
+        else:
+            redirect_uri = str(self.settings.meta_redirect_uri).strip()
+        
+        logger.info(f"Using redirect_uri for token exchange: {redirect_uri}")
+        
         client_id = self.settings.meta_app_id
         client_secret = self.settings.meta_app_secret.get_secret_value()
         
-        logger.info(f"OAuth 토큰 교환 파라미터:")
-        logger.info(f"  client_id: {client_id}")
-        logger.info(f"  redirect_uri: {redirect_uri}")
-        logger.info(f"  redirect_uri 길이: {len(redirect_uri)}")
-        logger.info(f"  redirect_uri (repr): {repr(redirect_uri)}")
-        logger.info(f"  client_secret 길이: {len(client_secret)}")
-        logger.info(f"  client_secret 처음 4자: {client_secret[:4]}... (디버깅용)")
+        logger.info("Initiating OAuth token exchange with Meta...")
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 self.TOKEN_URL,
                 params={
@@ -466,7 +437,7 @@ class MetaOAuthService:
             return response.json()
 
     async def _exchange_for_long_lived_token(self, short_lived_token: str) -> str:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 self.LONG_LIVED_TOKEN_URL,
                 params={
@@ -482,7 +453,7 @@ class MetaOAuthService:
 
     async def refresh_long_lived_token(self, long_lived_token: str) -> dict:
         """Long-lived 토큰을 갱신합니다. (60일 연장) - Facebook 토큰(EA...) 전용"""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
                 self.LONG_LIVED_TOKEN_URL,
                 params={
@@ -547,7 +518,7 @@ class MetaOAuthService:
 
     async def _get_instagram_user_info_direct(self, access_token: str) -> MetaUserInfo:
         """Call graph.instagram.com/me for branded login tokens."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 "https://graph.instagram.com/me",
                 params={
@@ -658,7 +629,7 @@ class MetaOAuthService:
                          # Continue to standard logic? No, if it's IG token, standard logic (graph.instagram.com/{page_id}) probably fails or is wrong.
                          return False
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 # Instagram Business Login: Always use graph.instagram.com
                 logger.info(f"🔍 기존 웹훅 구독 상태 확인 중 (IG Native)...")
                 check_url = f"https://graph.instagram.com/v25.0/{page_id}/subscribed_apps"
@@ -716,7 +687,7 @@ class MetaOAuthService:
             
             # 방법 1: App Access Token으로 구독 시도
             logger.info(f"   방법 1: App Access Token 사용...")
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     subscribe_url,
                     params={

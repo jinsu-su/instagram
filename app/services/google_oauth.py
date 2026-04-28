@@ -109,7 +109,8 @@ class GoogleOAuthService:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
+            # Production Hardening: Use a dedicated client with timeout for better reliability
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 token_resp = await client.post(self.TOKEN_URL, data=token_data)
                 token_resp.raise_for_status()
                 token_payload = token_resp.json()
@@ -117,8 +118,11 @@ class GoogleOAuthService:
                 refresh_token = token_payload.get("refresh_token")
 
                 if not access_token:
-                    logger.error("Google OAuth token 응답에 access_token 이 없습니다: %s", token_payload)
-                    raise ValueError("Google OAuth token response missing access_token")
+                    logger.error("Google OAuth token 응답에 access_token 이 없습니다.")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Google OAuth token response missing access_token"
+                    )
 
                 userinfo_resp = await client.get(
                     self.USERINFO_URL,
@@ -126,6 +130,12 @@ class GoogleOAuthService:
                 )
                 userinfo_resp.raise_for_status()
                 userinfo = userinfo_resp.json()
+        except httpx.TimeoutException as e:
+            logger.error(f"Google OAuth timeout: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="구글 인증 서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+            )
         except httpx.HTTPStatusError as e:
             error_detail = f"토큰 교환에 실패했습니다: {e.response.status_code}"
             try:
@@ -143,6 +153,7 @@ class GoogleOAuthService:
         google_user_id = userinfo.get("sub")
         name = userinfo.get("name")
         email = userinfo.get("email")
+        profile_picture_url = userinfo.get("picture")
 
         if not email:
             raise HTTPException(
@@ -166,6 +177,7 @@ class GoogleOAuthService:
                 email=email,
                 access_token=access_token,
                 refresh_token=refresh_token,
+                profile_picture_url=profile_picture_url,
             )
             logger.info(f"Successfully upserted customer from Google: customer_id={customer_data.id}, is_new={customer_data.is_new}")
         except (IntegrityError, DBAPIError) as e:

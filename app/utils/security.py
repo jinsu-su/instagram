@@ -37,14 +37,30 @@ def decode_access_token(token: str):
         return None
 
 def dumps_state(data: dict) -> str:
-    """Serialize a dict to a URL-safe base64 string."""
-    json_str = json.dumps(data)
-    return base64.urlsafe_b64encode(json_str.encode()).decode()
+    """Serialize and sign a dict to a JWS (JWT)."""
+    to_encode = data.copy()
+    # Add a short expiration (10 minutes) for state tokens
+    to_encode.update({"exp": datetime.utcnow() + timedelta(minutes=10)})
+    return jwt.encode(
+        to_encode,
+        settings.state_secret_key.get_secret_value(),
+        algorithm="HS256"
+    )
 
 def loads_state(state: str) -> dict:
-    """Deserialize a URL-safe base64 string to a dict."""
-    json_str = base64.urlsafe_b64decode(state.encode()).decode()
-    return json.loads(json_str)
+    """Verify and deserialize a JWS state string."""
+    try:
+        return jwt.decode(
+            state,
+            settings.state_secret_key.get_secret_value(),
+            algorithms=["HS256"]
+        )
+    except jwt.ExpiredSignatureError:
+        logger.warning("OAuth state expired")
+        raise ValueError("State expired")
+    except jwt.PyJWTError:
+        logger.warning("Invalid OAuth state signature")
+        raise ValueError("Invalid state")
 
 def encrypt_token(plain_text: str) -> str:
     """Encrypt a plain text string using Fernet (AES-128)."""

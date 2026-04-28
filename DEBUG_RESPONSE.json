@@ -1,0 +1,68 @@
+{
+  "status": "PAID",
+  "id": "sub_1777298910557",
+  "transactionId": "019dcf45-35f0-e8ab-673e-2ddca8427bfa",
+  "merchantId": "merchant-62a9ea11-cf9e-4290-8c86-332fad97d553",
+  "storeId": "store-9df13b7a-e716-40e2-830c-51ffe3284f99",
+  "method": {
+    "type": "PaymentMethodCard",
+    "card": {
+      "publisher": "SHINHAN_CARD",
+      "issuer": "SHINHAN_CARD",
+      "brand": "LOCAL",
+      "type": "CREDIT",
+      "ownerType": "PERSONAL",
+      "bin": "94106186",
+      "name": "신한카드",
+      "number": "94106186****724*"
+    },
+    "approvalNumber": "00000000",
+    "installment": {
+      "month": 0,
+      "isInterestFree": false,
+      "isInterestFreeFromMerchant": false
+    },
+    "pointUsed": false
+  },
+  "channel": {
+    "type": "TEST",
+    "id": "channel-id-ae7523f3-d92e-4d0a-9db9-7a0008ce634a",
+    "key": "channel-key-9ae6fd6e-d1df-4d3c-8439-04fa1a849895",
+    "name": "AIDM",
+    "pgProvider": "TOSSPAYMENTS",
+    "pgMerchantId": "iamporttest_4"
+  },
+  "version": "V2",
+  "requestedAt": "2026-04-27T14:08:32.806360211Z",
+  "updatedAt": "2026-04-27T14:08:59.85939632Z",
+  "statusChangedAt": "2026-04-27T14:08:59Z",
+  "orderName": "Starter Plan Subscription",
+  "amount": {
+    "total": 19000,
+    "taxFree": 0,
+    "vat": 1727,
+    "supply": 17273,
+    "discount": 0,
+    "paid": 19000,
+    "cancelled": 0,
+    "cancelledTaxFree": 0
+  },
+  "currency": "KRW",
+  "customer": {
+    "id": "port-customer-id-019dcf45-35f9-73c6-06a5-03d760c3c283"
+  },
+  "origin": {
+    "platformType": "PC",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "url": "http://localhost:3000",
+    "ipAddress": "175.193.99.133"
+  },
+  "promotionId": "",
+  "isCulturalExpense": false,
+  "customData": "{\"customer_id\":\"7c61a1a4-ba7a-4bda-982f-602bb545026d\"}",
+  "paidAt": "2026-04-27T14:08:59Z",
+  "pgTxId": "tiamp20260427230833X72r9",
+  "pgResponse": "{\"mId\":\"tiamporttest_4\",\"lastTransactionKey\":\"txrd_a01kq7mb7prxmmbd2ta5vrafha1\",\"paymentKey\":\"tiamp20260427230833X72r9\",\"orderId\":\"sub_1777298910557\",\"orderName\":\"Starter Plan Subscription\",\"taxExemptionAmount\":0,\"status\":\"DONE\",\"requestedAt\":\"2026-04-27T23:08:33+09:00\",\"approvedAt\":\"2026-04-27T23:08:59+09:00\",\"useEscrow\":false,\"cultureExpense\":false,\"card\":{\"company\":\"신한\",\"issuerCode\":\"41\",\"acquirerCode\":\"41\",\"number\":\"94106186****724*\",\"installmentPlanMonths\":0,\"isInterestFree\":false,\"interestPayer\":null,\"approveNo\":\"00000000\",\"useCardPoint\":false,\"cardType\":\"신용\",\"ownerType\":\"개인\",\"acquireStatus\":\"READY\",\"receiptUrl\":\"https://dashboard-sandbox.tosspayments.com/receipt/redirection?transactionId=tiamp20260427230833X72r9&ref=PX\",\"amount\":19000},\"virtualAccount\":null,\"transfer\":null,\"mobilePhone\":null,\"giftCertificate\":null,\"cashReceipt\":null,\"cashReceipts\":null,\"discount\":null,\"cancels\":null,\"secret\":\"ps_mBZ1gQ4YVXGJ91Mw9AO93l2KPoqN\",\"type\":\"NORMAL\",\"easyPay\":null,\"country\":\"KR\",\"failure\":null,\"isPartialCancelable\":true,\"receipt\":{\"url\":\"https://dashboard-sandbox.tosspayments.com/receipt/redirection?transactionId=tiamp20260427230833X72r9&ref=PX\"},\"checkout\":{\"url\":\"https://api.tosspayments.com/v1/payments/tiamp20260427230833X72r9/checkout\"},\"transactionKey\":\"txrd_a01kq7mb7prxmmbd2ta5vrafha1\",\"currency\":\"KRW\",\"totalAmount\":19000,\"balanceAmount\":19000,\"suppliedAmount\":17273,\"vat\":1727,\"taxFreeAmount\":0,\"method\":\"카드\",\"version\":\"2022-07-27\",\"metadata\":null}",
+  "receiptUrl": "https://dashboard-sandbox.tosspayments.com/receipt/redirection?transactionId=tiamp20260427230833X72r9&ref=PX",
+  "disputes": []
+}

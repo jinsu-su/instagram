@@ -93,8 +93,18 @@ async def google_callback(
     except:
         redirect_uri_from_state = None
 
+    # 1. redirect_uri 보안 검증 (Open Redirect 방지)
+    from app.main import allowed_origins
     if redirect_uri_from_state:
         base_redirect_url = redirect_uri_from_state.strip()
+        parsed_redirect = urlparse(base_redirect_url)
+        redirect_origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
+        
+        # 허용된 Origin 리스트에 포함되어 있는지 확인
+        if redirect_origin not in allowed_origins and "localhost" not in redirect_origin:
+            logger.warning(f"Unauthorized redirect attempt blocked: {redirect_origin}")
+            frontend_base = str(settings.frontend_base_url).rstrip("/")
+            base_redirect_url = f"{frontend_base}/dashboard"
     else:
         frontend_base = str(settings.frontend_base_url).rstrip("/")
         base_redirect_url = f"{frontend_base}/dashboard"
@@ -102,7 +112,7 @@ async def google_callback(
     parsed = urlparse(base_redirect_url)
     normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
     
-    # 항상 is_new=true로 설정하여 고객 정보 입력 폼이 표시되도록 함
+    # 2. 보안: URL 파라미터에서 access_token 제거 (HttpOnly 쿠키 사용)
     params = {
         "customer_id": customer_data.id,
         "is_new": "true" if customer_data.is_new else "false",
@@ -110,8 +120,21 @@ async def google_callback(
     }
     
     redirect_with_params = f"{normalized_url}?{urlencode(params)}"
-    logger.info(f"Redirecting Google OAuth to: {redirect_with_params}")
+    logger.info(f"Redirecting Google OAuth to: {normalized_url} (Token set via Cookie)")
 
-    return RedirectResponse(url=redirect_with_params, status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url=redirect_with_params, status_code=status.HTTP_302_FOUND)
+    
+    # HttpOnly 쿠키 설정 (보안 강화)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True if settings.environment == "production" else False,
+        samesite="lax",
+        max_age=settings.access_token_expire_minutes * 60,
+        domain=None # 특정 도메인 제한이 필요하면 설정 (예: .aidm.kr)
+    )
+    
+    return response
 
 

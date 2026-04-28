@@ -12,6 +12,7 @@ from app.models.ai_performance_report import AIPerformanceReport
 from app.models.ai_insight import AiInsight
 from app.models.post_analysis_cache import PostAnalysisCache
 from app.models.processed_webhook import ProcessedWebhook
+from app.models.scheduler_lock import SchedulerLock
 
-__all__ = ["Base", "Customer", "OAuthAccount", "OAuthProvider", "InstagramAccount", "Campaign", "AutomationActivity", "Flow", "ChatSession", "ChatMessage", "AIPerformanceReport", "AiInsight", "PostAnalysisCache", "ProcessedWebhook"]
+__all__ = ["Base", "Customer", "OAuthAccount", "OAuthProvider", "InstagramAccount", "Campaign", "AutomationActivity", "Flow", "ChatSession", "ChatMessage", "AIPerformanceReport", "AiInsight", "PostAnalysisCache", "ProcessedWebhook", "SchedulerLock"]
 

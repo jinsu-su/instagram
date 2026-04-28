@@ -35,6 +35,10 @@ class Subscription(Base):
     # Usage Limits (Monthly)
     usage_count = Column(Integer, default=0)
     usage_limit = Column(Integer, default=50) # Default free limit
+
+    # AI Auto Reply Trial (Monthly) - for Basic plans (e.g., 50 replies/month)
+    ai_reply_count = Column(Integer, default=0)
+    ai_reply_limit = Column(Integer, default=0)
     
     # AI Insights Usage Tracking (Monthly)
     performance_report_count = Column(Integer, default=0)  # AI 바이럴 분석 횟수 (월간)

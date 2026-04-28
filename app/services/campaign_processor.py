@@ -81,14 +81,14 @@ class CampaignProcessor:
                             )
                             if resp.is_success:
                                 # Success! This token owns/can see this ID.
-                                logger.info(f"✨ Auto-resolved account mapping: @{acc.instagram_username} -> ID {page_id}")
+                                logger.info("✨ Auto-resolved account mapping successfully.")
                                 acc.page_id = page_id
                                 acc.ig_id = page_id
                                 await self.db.commit()
                                 await self.db.refresh(acc)
                                 return acc
                             else:
-                                logger.debug(f"Auto-resolve API returned {resp.status_code} for @{acc.instagram_username} -> {page_id}: {resp.text[:200]}")
+                                logger.debug(f"Auto-resolve API returned {resp.status_code} for page_id: {page_id}")
                     except Exception as e:
                         logger.debug(f"Auto-resolve HTTP error for @{acc.instagram_username}: {e}")
                         continue
@@ -98,6 +98,29 @@ class CampaignProcessor:
         return None
                 
         return None
+
+    async def _post_with_retry(self, url: str, headers: dict, json_data: dict, timeout: float = 10.0, max_retries: int = 3) -> Optional[httpx.Response]:
+        """Helper to perform POST requests to Meta API with automatic retries."""
+        async with httpx.AsyncClient() as client:
+            for attempt in range(max_retries):
+                try:
+                    resp = await client.post(url, headers=headers, json=json_data, timeout=timeout)
+                    if resp.is_success:
+                        return resp
+                    
+                    # Do not retry on client errors (except 429 Rate Limit)
+                    if resp.status_code < 500 and resp.status_code != 429:
+                        return resp
+                    
+                    logger.warning(f"⚠️ [Retry] Attempt {attempt + 1} failed with status {resp.status_code}. Retrying...")
+                except (httpx.RequestError, asyncio.TimeoutError) as e:
+                    logger.warning(f"⚠️ [Retry] Attempt {attempt + 1} network error: {str(e)}")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))
+            
+            logger.error(f"❌ [Retry] All {max_retries} attempts failed for URL: {url}")
+            return None
 
     async def _handle_contact(self, customer_id: UUID, instagram_id: str, access_token: str, text: str, username: str = None, full_name: str = None, profile_pic: str = None, instagram_account: Optional[InstagramAccount] = None, media_id: str = None):
         """Helper to register contact and trigger background tasks with fresh sessions."""
@@ -158,6 +181,28 @@ class CampaignProcessor:
         1. Checks for Global Flow Keywords.
         2. Falls back to COMMENT_GROWTH campaign.
         """
+        # 0. DEDUPLICATION & RACE CONDITION PREVENTION
+        if comment_id:
+            from app.models.processed_webhook import ProcessedWebhook
+            from sqlalchemy.exc import IntegrityError
+            
+            try:
+                # 1. 락 획득 시도 (동일 comment_id 튜플 삽입)
+                db_lock = ProcessedWebhook(mid=comment_id)
+                self.db.add(db_lock)
+                await self.db.commit()
+                logger.info(f"✅ Webhook lock acquired for comment_id: {comment_id}")
+            except IntegrityError:
+                # 2. 이미 처리 중이거나 처리 완료됨
+                await self.db.rollback()
+                logger.warning(f"⏭️ Comment duplicate blocked (DB Lock): comment_id={comment_id} is already being processed.")
+                return
+            except Exception as e:
+                await self.db.rollback()
+                logger.error(f"🚨 DB Error during comment lock acquisition: {e}")
+                # 에러 발생 시 안전을 위해 중단(중복 방지가 더 중요)
+                return
+
         # 1. Find the Instagram account (Flexible Matching)
         # Webhook entry.id can be Page ID or Instagram Business Account ID
         result = await self.db.execute(
@@ -282,10 +327,36 @@ class CampaignProcessor:
         for kr in keyword_replies:
             if not kr.get("is_active", True):
                 continue
-            keyword = kr.get("keyword", "").strip()
-            logger.debug(f"Comparing '{text}' with keyword '{keyword}'")
-            if keyword and (keyword.lower() == text.lower().strip() or keyword.lower() in text.lower()):
-                logger.info(f"✅ Keyword Reply JSON matched: '{keyword}'")
+            
+            # [STABLE] Post-Specific Filtering Logic
+            # Safely cast all media IDs to string to prevent Python int vs str comparison bugs
+            rule_media_id = str(kr.get("media_id")) if kr.get("media_id") else None
+            rule_media_ids = [str(mid) for mid in (kr.get("media_ids") or [])]
+            str_media_id = str(media_id) if media_id else None
+            
+            if rule_media_id and rule_media_id != str_media_id:
+                logger.debug(f"⏭️ Skipping rule: media_id mismatch. Rule: {rule_media_id}, Comment: {str_media_id}")
+                continue
+            
+            if rule_media_ids and str_media_id not in rule_media_ids:
+                logger.debug(f"⏭️ Skipping rule: media_id not in rule_media_ids. Comment: {str_media_id}")
+                continue
+
+            # Handle multiple keywords from the new builder
+            keywords = kr.get("keywords", [])
+            primary_kw = kr.get("keyword", "").strip()
+            if primary_kw and primary_kw not in keywords:
+                keywords.append(primary_kw)
+                
+            matched_kw = None
+            for kw in keywords:
+                kw = kw.strip().lower()
+                if kw and (kw == text.lower().strip() or kw in text.lower()):
+                    matched_kw = kw
+                    break
+                    
+            if matched_kw:
+                logger.info(f"✅ Keyword Reply JSON matched: '{matched_kw}' (Media ID: {str_media_id})")
                 
                 dm_message = kr.get("message", "")
                 link = kr.get("link", "")
@@ -307,33 +378,52 @@ class CampaignProcessor:
                     # Increment Usage for Automation
                     await self.subscription_service.increment_usage(customer_id)
                     
-                    # --- [PRO MODE] EXTRACT RICH CARD SETTINGS ---
+                    # --- [PRO MODE] EXTRACT RICH CARD SETTINGS & SEAMLESS CHECK ---
                     raw_interaction_type = kr.get("interaction_type") or ("follow_check" if kr.get("is_follow_check") else "immediate")
                     is_follow_req = (raw_interaction_type == "follow_check")
                     
+                    if is_follow_req:
+                        # 🔍 Seamless Auto-Check! Check Instagram immediately
+                        is_following = await self.check_is_following(instagram_account, instagram_id, access_token)
+                        if is_following:
+                            logger.info(f"✅ User {instagram_id} is already following! Bypassing gate (Seamless).")
+                            is_follow_req = False # Turn off the gate!
+                    
                     btn_text = kr.get("button_text") or "자세히 보기 🔍"
-                    # [FIX] Use ONLY the dedicated card_image_url for the card thumbnail.
-                    # Do NOT fallback to reply images — those must arrive AFTER the button is clicked.
                     c_image = kr.get("card_image_url") or None
                     c_title = kr.get("card_title") or kr.get("card_message") or "상세 정보를 확인하세요!"
                     c_subtitle = kr.get("card_subtitle") or (dm_message[:80] if dm_message else "아래 버튼을 클릭하여 상세 정보를 확인해보세요!")
                     
-                    # 1a. Send ONLY the Interaction Card — NO reply images yet.
-                    # Images (image_urls) are sent AFTER button click via postback retrigger.
-                    await self.send_dm(
-                        instagram_account, instagram_id, dm_message or "", 
-                        image_url=None,  # [FIX] No reply image with card
-                        comment_id=comment_id,
-                        access_token=access_token,
-                        page_id=page_id,
-                        instagram_user_id=instagram_user_id,
-                        trigger_keyword=keyword,
-                        is_follow_check=is_follow_req,
-                        button_text=btn_text,
-                        card_image_url=c_image,
-                        card_title=c_title,
-                        card_subtitle=c_subtitle
-                    )
+                    if is_follow_req:
+                        # 1a. NOT FOLLOWING -> Send the Gate Card
+                        # If Meta blocks the button (Private Reply), fallback_message will guide them to reply.
+                        fallback_message = c_subtitle + f"\n\n(※ 만약 버튼이 보이지 않는다면, 이 채팅창에 '{keyword}'(이)라고 답장을 보내주세요!)"
+                        await self.send_dm(
+                            instagram_account, instagram_id, fallback_message, 
+                            image_url=None,  # No reply image with card
+                            comment_id=comment_id,
+                            access_token=access_token,
+                            page_id=page_id,
+                            instagram_user_id=instagram_user_id,
+                            trigger_keyword=keyword,
+                            is_follow_check=True,
+                            button_text=btn_text,
+                            card_image_url=c_image,
+                            card_title=c_title,
+                            card_subtitle=c_subtitle
+                        )
+                    else:
+                        # 1b. ALREADY FOLLOWING or IMMEDIATE -> Send the Real Secret DM
+                        first_image = image_urls[0] if image_urls else None
+                        await self.send_dm(
+                            instagram_account, instagram_id, dm_message or "", 
+                            image_url=first_image,
+                            comment_id=comment_id,
+                            access_token=access_token,
+                            page_id=page_id,
+                            instagram_user_id=instagram_user_id,
+                            is_automated=True
+                        )
 
                 # 2. Send Public Reply (Randomized)
                 reply_variations = kr.get("reply_variations", [])
@@ -446,8 +536,9 @@ class CampaignProcessor:
                 await self.db.commit()
                 return # Stop if campaign matched
         # 4. AI FALLBACK: Generate response if AI is active and in time
+        # 🛡️ SECURITY: AI 매칭 및 자동 답장은 Premium (ai- 시작 플랜) 사용자 전용입니다.
         logger.info(f"Checking AI for comment: is_active={is_ai_active}")
-        if is_ai_active:
+        if is_ai_active and await self._is_premium_ai_user(customer_id):
             import pytz
             tz_str = getattr(customer, "timezone", "Asia/Seoul") or getattr(instagram_account, "timezone", "Asia/Seoul") or "Asia/Seoul"
             try:
@@ -472,10 +563,10 @@ class CampaignProcessor:
                 if is_in_time:
                     logger.info(f"Triggering AI Response Generation for comment (TZ: {tz_str})...")
                     
-                    # 1. Monetization check
-                    usage_blocked = await self.subscription_service.check_usage_limit(customer_id)
-                    if usage_blocked:
-                        logger.warning(f"⛔ USAGE LIMIT REACHED for customer {customer_id}")
+                    # 1. Monetization check (AI auto-reply trial for Basic)
+                    ai_gate = await self.subscription_service.check_ai_reply_limit(customer_id)
+                    if not ai_gate.get("allowed", False):
+                        logger.warning(f"⛔ AI trial limit reached/disabled for customer {customer_id}")
                         return
 
                     # 2. Get Chat History for context
@@ -523,6 +614,9 @@ class CampaignProcessor:
                             instagram_account, comment_id, ai_response,
                             access_token=access_token
                         )
+
+                        # Increment AI trial usage only after successful send
+                        await self.subscription_service.increment_ai_reply_usage(customer_id)
                         
                         # Log Activity
                         await self.activity_service.log_activity(
@@ -533,7 +627,7 @@ class CampaignProcessor:
                             trigger_text=text,
                             action_text=f"AI Comment Reply: {ai_response}"
                         )
-                        logger.info(f"✅ AI Comment Reply sent: {ai_response[:50]}...")
+                        logger.info(f"✅ AI Comment Reply sent: {ai_response[:50]}... (remaining: {ai_gate.get('remaining')})")
                         return
             except Exception as e:
                 logger.error(f"Error in comment AI fallback: {e}")
@@ -568,13 +662,14 @@ class CampaignProcessor:
         
         # --- IMAGE URL NORMALIZATION ---
         def normalize_url(url):
-            if url and (url.startswith("/") or "localhost" in url or "127.0.0.1" in url):
-                from urllib.parse import urlparse
-                base_url = str(settings.api_base_url).rstrip('/')
-                parsed = urlparse(url)
-                normalized = f"{base_url}{parsed.path}"
-                if parsed.query:
-                    normalized += f"?{parsed.query}"
+            if not url: return url
+            # Production Robustness: Handle relative paths, protocol-relative, and localhost
+            if url.startswith("/") or url.startswith("./") or "localhost" in url or "127.0.0.1" in url:
+                from urllib.parse import urljoin
+                base_url = str(settings.api_base_url).rstrip('/') + "/"
+                # Ensure we have a clean absolute path
+                clean_path = url.lstrip("./")
+                normalized = urljoin(base_url, clean_path)
                 return normalized
             return url
 
@@ -623,30 +718,27 @@ class CampaignProcessor:
             # Instagram Business Login always uses graph.instagram.com
             msg_url = "https://graph.instagram.com/v25.0/me/messages"
             
-            async with httpx.AsyncClient() as client:
-                # 🎯 Official Meta structured format
-                if comment_id:
-                    recipient = {"comment_id": comment_id}
-                else:
-                    recipient = {"id": recipient_id}
+            # 🎯 Official Meta structured format
+            if comment_id:
+                recipient = {"comment_id": comment_id}
+            else:
+                recipient = {"id": recipient_id}
 
-                payload_data = {
-                    "recipient": recipient,
-                    "message": template_payload
-                }
-                logger.info(f"🛡️ [Interaction Mode] Dispatching Validated Generic Card to {recipient} through {msg_url}")
-                
-                try:
-                    resp = await client.post(msg_url, headers=headers, json=payload_data, timeout=10.0)
-                    if resp.status_code in [200, 202]:
-                        logger.info(f"✅ Generic Interaction Card (Title: {c_title}) sent successfully to {recipient_id}")
-                        # Ensure we STOP here and don't send individual bubbles/reliability text
-                        return True 
-                    else:
-                        error_data = resp.json() if resp.status_code == 400 else resp.text
-                        logger.error(f"❌ Meta rejected the Generic Card: {resp.status_code} - {error_data}")
-                except Exception as e:
-                    logger.error(f"Error during Generic Card dispatch: {e}")
+            payload_data = {
+                "recipient": recipient,
+                "message": template_payload
+            }
+            logger.info(f"🛡️ [Interaction Mode] Dispatching Validated Generic Card to {recipient} through {msg_url}")
+            
+            resp = await self._post_with_retry(msg_url, headers, payload_data)
+            if resp and resp.status_code in [200, 202]:
+                logger.info(f"✅ Generic Interaction Card (Title: {c_title}) sent successfully to {recipient_id}")
+                return True
+            elif resp:
+                 "Error Data Masked"  = resp.json() if resp.status_code == 400 else  "Response Text Masked" 
+                logger.error(f"❌ Meta rejected the Generic Card: {resp.status_code} - { "Error Data Masked" }")
+            else:
+                logger.error(f"❌ Failed to dispatch Generic Card after all retries.")
 
         # --- 100% RELIABILITY MODE: Unified Private Reply ---
         # Instagram rejects Templates (Cards) for initial Private Replies (Error 2534022).
@@ -657,71 +749,67 @@ class CampaignProcessor:
             if image_url:
                 final_message += f"\n\n📸 사진 확인하기: {image_url}"
             
-            async with httpx.AsyncClient() as client:
-                payload = {
-                    "recipient": {"comment_id": comment_id},
-                    "message": {"text": final_message}
-                }
-                try:
-                    resp = await client.post(url, headers=headers, json=payload)
-                    if not resp.is_success:
-                        logger.error(f"❌ Failed to send reliability DM: {resp.status_code} - {resp.text}")
-                        # Fallback to recipient_id if comment_id fails (some cases)
-                        payload["recipient"] = {"id": recipient_id}
-                        resp = await client.post(url, headers=headers, json=payload)
-                    
-                    if resp.is_success:
-                        logger.info(f"✅ Reliability DM sent successfully to {recipient_id}")
-                        await self._save_message_to_db(
-                            account=account, recipient_id=recipient_id, sender_id=instagram_user_id,
-                            text=final_message, is_from_me=True, mid=resp.json().get("message_id"),
-                            is_automated=is_automated
-                        )
-                        return
-                except Exception as e:
-                    logger.error(f"Error in reliability mode: {e}")
+            payload = {
+                "recipient": {"comment_id": comment_id},
+                "message": {"text": final_message}
+            }
+            resp = await self._post_with_retry(url, headers, payload)
+            if resp and not resp.is_success:
+                logger.error(f"❌ Failed to send reliability DM: {resp.status_code} - { "Response Text Masked" }")
+                # Fallback to recipient_id if comment_id fails (some cases)
+                payload["recipient"] = {"id": recipient_id}
+                resp = await self._post_with_retry(url, headers, payload)
+            
+            if resp and resp.is_success:
+                logger.info(f"✅ Reliability DM sent successfully to {recipient_id}")
+                await self._save_message_to_db(
+                    account=account, recipient_id=recipient_id, sender_id=instagram_user_id,
+                    text=final_message, is_from_me=True, mid=resp.json().get("message_id"),
+                    is_automated=is_automated
+                )
+                return
+            else:
+                logger.error(f"❌ Failed to send reliability DM after retries.")
         
         # --- STANDARD SEPARATE BUBBLES MODE (Regular DMs) ---
         # This is used when the window is already open (no comment_id)
-        async with httpx.AsyncClient() as client:
-            # --- PHASE 1: Send Text Message ---
-            if message:
-                text_payload = {
-                    "recipient": {"id": recipient_id},
-                    "message": {"text": message}
-                }
-                try:
-                    resp = await client.post(url, headers=headers, json=text_payload)
-                    if resp.is_success:
-                        logger.info(f"✅ Text message sent to {recipient_id}")
-                        await self._save_message_to_db(
-                            account=account, recipient_id=recipient_id, sender_id=instagram_user_id,
-                            text=message, is_from_me=True, mid=resp.json().get("message_id"),
-                            is_automated=is_automated
-                        )
-                    else:
-                        logger.error(f"❌ Failed to send text DM: {resp.status_code} - {resp.text}")
-                except Exception as e:
-                    logger.error(f"Error in Phase 1 (Text): {e}")
-            if image_url:
-                # If message was sent above, comment_id is now None, so this will correctly use recipient_id
-                image_payload = {
-                    "recipient": {"comment_id": comment_id} if comment_id else {"id": recipient_id},
-                    "message": {
-                        "attachment": {
-                            "type": "image",
-                            "payload": {"url": image_url}
-                        }
+        # --- PHASE 1: Send Text Message ---
+        if message:
+            text_payload = {
+                "recipient": {"id": recipient_id},
+                "message": {"text": message}
+            }
+            resp = await self._post_with_retry(url, headers, text_payload)
+            if resp and resp.is_success:
+                logger.info(f"✅ Text message sent to {recipient_id}")
+                await self._save_message_to_db(
+                    account=account, recipient_id=recipient_id, sender_id=instagram_user_id,
+                    text=message, is_from_me=True, mid=resp.json().get("message_id"),
+                    is_automated=is_automated
+                )
+            elif resp:
+                logger.error(f"❌ Failed to send text DM: {resp.status_code} - { "Response Text Masked" }")
+            else:
+                logger.error(f"❌ Failed to send text DM after all retries.")
+
+        if image_url:
+            # If message was sent above, comment_id is now None, so this will correctly use recipient_id
+            image_payload = {
+                "recipient": {"comment_id": comment_id} if comment_id else {"id": recipient_id},
+                "message": {
+                    "attachment": {
+                        "type": "image",
+                        "payload": {"url": image_url}
                     }
                 }
-                try:
-                    resp = await client.post(url, headers=headers, json=image_payload)
-                    if not resp.is_success:
-                        logger.error(f"❌ Failed to send image DM: {resp.status_code} - {resp.text}")
-                    else:
-                        logger.info(f"✅ Image DM sent successfully to {recipient_id}")
-                except Exception as e:
-                    logger.error(f"Failed to send image DM: {e}")
+            }
+            resp = await self._post_with_retry(url, headers, image_payload)
+            if resp and resp.is_success:
+                logger.info(f"✅ Image DM sent successfully to {recipient_id}")
+            elif resp:
+                logger.error(f"❌ Failed to send image DM: {resp.status_code} - { "Response Text Masked" }")
+            else:
+                logger.error(f"❌ Failed to send image DM after all retries.")
 
     async def _save_message_to_db(self, account: InstagramAccount, recipient_id: str, sender_id: str, text: str, is_from_me: bool, mid: Optional[str] = None, username: str = None, created_at: Optional[datetime] = None, is_automated: bool = False):
         """Helper to save a message and update/create a chat session."""
@@ -819,18 +907,39 @@ class CampaignProcessor:
         headers = {"Authorization": f"Bearer {access_token}"}
         payload = {"message": text}
         
-        async with httpx.AsyncClient() as client:
-            try:
-                resp = await client.post(url, headers=headers, json=payload)
-                if not resp.is_success:
-                    logger.error(f"Failed to reply to comment {comment_id}: {resp.text}")
-                    # 🔥 인증 오류 감지 및 알림
-                    await self._handle_api_error(account, resp)
-            except Exception as e:
-                logger.error(f"Error replying to comment: {e}")
+        resp = await self._post_with_retry(url, headers, payload)
+        
+        if resp and resp.is_success:
+            logger.info(f"✅ Successfully replied to comment {comment_id}")
+        elif resp:
+            # 🔥 인증 오류 감지 및 알림
+            await self._handle_api_error(account, resp)
+        else:
+            logger.error(f"❌ Failed to reply to comment {comment_id} after all retries.")
 
-    async def process_story_mention(self, page_id: str, instagram_id: str, username: str = None, created_at: Optional[datetime] = None):
+    async def process_story_mention(self, page_id: str, instagram_id: str, username: str = None, created_at: Optional[datetime] = None, mid: str = None):
         """Processes an incoming Story Mention."""
+        logger.info(f"--- Processing Story Mention: page_id={page_id}, sender={instagram_id}, mid={mid} ---")
+
+        # 0. DEDUPLICATION & RACE CONDITION PREVENTION
+        if mid:
+            from app.models.processed_webhook import ProcessedWebhook
+            from sqlalchemy.exc import IntegrityError
+            
+            try:
+                # 락 획득 시도
+                db_lock = ProcessedWebhook(mid=mid)
+                self.db.add(db_lock)
+                await self.db.commit()
+                logger.info(f"✅ Webhook lock acquired for story_mention mid: {mid}")
+            except IntegrityError:
+                await self.db.rollback()
+                logger.warning(f"⏭️ Story Mention duplicate blocked (DB Lock): mid={mid} is already processed.")
+                return
+            except Exception as e:
+                await self.db.rollback()
+                logger.error(f"🚨 DB Error during story mention lock acquisition: {e}")
+                return
         # Similar logic to process_comment_growth but for STORY_MENTION
         result = await self.db.execute(
             select(InstagramAccount).where(
@@ -1319,7 +1428,7 @@ class CampaignProcessor:
                             else:
                                 # Initial trigger → send ONLY the card, NO reply images
                                 await self.send_dm(
-                                    instagram_account, instagram_id, "",
+                                    instagram_account, instagram_id, c_subtitle,
                                     image_url=None,  # [FIX] No reply image with card
                                     access_token=access_token,
                                     page_id=page_id,
@@ -1396,8 +1505,9 @@ class CampaignProcessor:
                 logger.info(f"ℹ️ No active Welcome campaign found for customer {customer_id}")
 
             # 3. AI FALLBACK: Generate response if AI is active and in time
+            # 🛡️ SECURITY: AI 자동 답장은 Premium (ai- 시작 플랜) 사용자 전용입니다.
             logger.info(f"Checking AI for DM: is_active={is_ai_active}")
-            if is_ai_active:
+            if is_ai_active and await self._is_premium_ai_user(customer_id):
                 import pytz
                 tz_str = getattr(customer, "timezone", "Asia/Seoul") or getattr(instagram_account, "timezone", "Asia/Seoul") or "Asia/Seoul"
                 try:
@@ -1475,14 +1585,11 @@ class CampaignProcessor:
                             chat_history_list.append(f"[{role}]: {hm.content}")
                         chat_history_str = "\n".join(chat_history_list)
 
-                        # Check Usage Limit
-                        is_locked = await self.subscription_service.check_usage_limit(customer_id)
-                        if is_locked:
-                            logger.warning(f"🚫 Usage Limit Reached for {customer_id}. Blocking AI response.")
+                        # Monetization check (AI auto-reply trial for Basic)
+                        ai_gate = await self.subscription_service.check_ai_reply_limit(customer_id)
+                        if not ai_gate.get("allowed", False):
+                            logger.warning(f"🚫 AI trial limit reached/disabled for {customer_id}. Blocking AI response.")
                             return
-
-                        # Increment Usage
-                        await self.subscription_service.increment_usage(customer_id)
                         
                         try:
                             ai_reply = await self.contact_service.generate_ai_response(
@@ -1509,6 +1616,9 @@ class CampaignProcessor:
                                 is_automated=True
                             )
                             logger.info(f"✅ AI auto-reply sent to {instagram_id}")
+
+                            # Increment AI trial usage only after successful send
+                            await self.subscription_service.increment_ai_reply_usage(customer_id)
                             
                             # Log AI Activity
                             await self.activity_service.log_activity(
@@ -1586,7 +1696,7 @@ class CampaignProcessor:
             try:
                 resp = await client.post(url, headers=headers, json=payload)
                 if not resp.is_success:
-                    logger.error(f"Failed to send button DM: {resp.text}")
+                    logger.error(f"Failed to send button DM: { "Response Text Masked" }")
                     # 🔥 인증 오류 감지 및 알림
                     await self._handle_api_error(account, resp)
                 else:
@@ -1669,7 +1779,7 @@ class CampaignProcessor:
             try:
                 resp = await client.post(url, headers=headers, json=payload)
                 if not resp.is_success:
-                    logger.error(f"Failed to send generic card: {resp.text}")
+                    logger.error(f"Failed to send generic card: { "Response Text Masked" }")
                     await self._handle_api_error(account, resp)
                 else:
                     logger.info(f"✅ Generic card sent successfully to {recipient_id}")
@@ -1691,10 +1801,10 @@ class CampaignProcessor:
     async def _handle_api_error(self, account: InstagramAccount, response: httpx.Response):
         """Meta/Instagram API 응답 에러를 분석하고 필요시 계정 연결 끊김 알림을 생성합니다."""
         try:
-            error_data = response.json().get("error", {})
-            error_code = error_data.get("code")
-            error_subcode = error_data.get("error_subcode")
-            error_msg = error_data.get("message", "Unknown error")
+             "Error Data Masked"  = response.json().get("error", {})
+            error_code =  "Error Data Masked" .get("code")
+            error_subcode =  "Error Data Masked" .get("error_subcode")
+            error_msg =  "Error Data Masked" .get("message", "Unknown error")
             
             # 1. 인증 오류 (401 Unauthorized 또는 Code 190)
             # Code 190: Access token has expired, or the user has changed their password.
@@ -1747,8 +1857,32 @@ class CampaignProcessor:
                     return bool(is_following)
                 else:
                     # API error (400, 403, etc.) — do NOT block user, default to True
-                    logger.warning(f"⚠️ Follow Check API returned {resp.status_code} for {instagram_id}: {resp.text[:300]}. Defaulting to True (benefit of doubt).")
+                    logger.warning(f"⚠️ Follow Check API returned {resp.status_code} for {instagram_id}: { "Response Text Masked" [:300]}. Defaulting to True (benefit of doubt).")
                     return True
         except Exception as e:
             logger.error(f"Error checking follow status for {instagram_id}: {e}. Defaulting to True.")
             return True
+
+    async def _is_premium_ai_user(self, customer_id: UUID) -> bool:
+        """
+        🛡️ 고객의 구독 플랜이 AI 기능을 지원하는지 확인합니다.
+        'ai-' 로 시작하는 모든 플랜(ai-starter, ai-pro 등)을 프리미엄으로 간주합니다.
+        """
+        try:
+            from app.models.subscription import Subscription
+            result = await self.db.execute(
+                select(Subscription).where(Subscription.customer_id == customer_id)
+            )
+            sub = result.scalar_one_or_none()
+            
+            # 구독 정보가 없거나 'free', 'basic-' 계열은 AI 기능 차단
+            if not sub or not sub.plan_name:
+                return False
+                
+            plan = sub.plan_name.lower()
+            # AI 플랜(ai-starter, ai-pro, ai-free 포함)만 허용
+            # 단, status가 active여야 함
+            return plan.startswith("ai-") and sub.status == "active"
+        except Exception as e:
+            logger.error(f"Error checking premium status for {customer_id}: {e}")
+            return False
