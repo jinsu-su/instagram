@@ -634,9 +634,9 @@ const DashboardMainView = ({
                                       activity.event_type === 'FLOW_TRIGGER' ? 'bg-emerald-500 text-white' :
                                         'bg-blue-500 text-white'
                                       }`}>
-                                      {(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'AI RESPONSE' :
-                                        activity.event_type === 'FLOW_TRIGGER' ? 'SCENARIO' :
-                                          'KEYWORD REPLY'}
+                                      {(activity.event_type === 'AI_CHAT_REPLY' || activity.event_type === 'AI_COMMENT_REPLY') ? 'AI 응답' :
+                                        activity.event_type === 'FLOW_TRIGGER' ? '시나리오' :
+                                          '키워드'}
                                     </span>
                                   </div>
                                   <span className="text-[10px] text-gray-400 font-medium tabular-nums">{new Date(activity.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
