@@ -339,6 +339,7 @@ function Dashboard() {
   const [isModerationAlertActive, setIsModerationAlertActive] = useState(false);
   const [galleryPosts, setGalleryPosts] = useState([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+  const [lastGalleryRefreshTime, setLastGalleryRefreshTime] = useState(0);
   const [showFlowModal, setShowFlowModal] = useState(false);
   const [showScenarioModal, setShowScenarioModal] = useState(false);
   const [flowForm, setFlowForm] = useState({
@@ -1696,6 +1697,13 @@ function Dashboard() {
 
   // --- AI Clean Guard (Moderation) Functions ---
   const loadGalleryPosts = async (id) => {
+    // SaaS Performance: Rate limit refreshes to once every 10 seconds to prevent API abuse
+    const now = Date.now();
+    if (now - lastGalleryRefreshTime < 10000) {
+      console.log('Skipping gallery refresh: too frequent (rate limit 10s)');
+      return;
+    }
+
     try {
       setIsGalleryLoading(true);
       setSectionErrors(prev => ({ ...prev, aiguard: false }));
@@ -1712,6 +1720,7 @@ function Dashboard() {
       
       const data = await res.json();
       setGalleryPosts(data.images || []);
+      setLastGalleryRefreshTime(now);
     } catch (err) {
       // Final fallback search in basicSummary if everything else fails
       if (basicSummary && basicSummary.top_posts && basicSummary.top_posts.length > 0) {

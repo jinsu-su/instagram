@@ -87,10 +87,12 @@ const AiGuardView = ({
                 showPremiumLockToast('프리미엄 요금제로 연장해야 데이터를 동기화할 수 있습니다.');
                 return;
               }
+              if (isGalleryLoading) return;
               if (customerId) {
                 loadGalleryPosts(customerId);
               }
             }}
+            disabled={isGalleryLoading}
             className="rounded-xl bg-white border border-gray-200 text-gray-900 font-bold h-11 px-5 hover:bg-gray-900 hover:text-white hover:border-gray-900 transition-all shadow-sm flex items-center gap-2 group"
           >
             <RefreshCw className={`w-4 h-4 transition-transform group-hover:rotate-180 duration-500 ${isGalleryLoading ? 'animate-spin' : ''}`} />
