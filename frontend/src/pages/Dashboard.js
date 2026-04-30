@@ -2041,6 +2041,8 @@ function Dashboard() {
         showPremiumLockToast={showPremiumLockToast}
         isAiPremiumLocked={isAiPremiumLocked}
         handlePostAnalysis={handlePostAnalysis}
+        loadGalleryPosts={loadGalleryPosts}
+        customerId={customerId}
       />
     );
   };

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Bot, Heart, Lock, MessageCircle, Sparkles } from 'lucide-react';
+import { Bot, Heart, Lock, MessageCircle, Sparkles, RefreshCw } from 'lucide-react';
+import { Button } from '../../../components/ui/button';
 
 const AiGuardView = ({
   selectedPost,
@@ -14,6 +15,8 @@ const AiGuardView = ({
   showPremiumLockToast,
   isAiPremiumLocked,
   handlePostAnalysis,
+  loadGalleryPosts,
+  customerId,
 }) => {
   if (selectedPost) {
     return (
@@ -74,6 +77,25 @@ const AiGuardView = ({
           <p className="text-[10px] text-gray-400 font-bold">
             * 서비스 전체의 실시간 알림을 한 번에 제어합니다.
           </p>
+        </div>
+
+        <div className="md:absolute md:right-0 md:top-1/2 md:-translate-y-1/2 flex items-center gap-4 bg-gray-50/50 p-1.5 rounded-2xl border border-gray-100 shrink-0 mt-6 md:mt-0">
+          <Button
+            variant="white"
+            onClick={() => {
+              if (isPremiumFeatureLocked) {
+                showPremiumLockToast('프리미엄 요금제로 연장해야 데이터를 동기화할 수 있습니다.');
+                return;
+              }
+              if (customerId) {
+                loadGalleryPosts(customerId);
+              }
+            }}
+            className="rounded-xl bg-white border border-gray-200 text-gray-900 font-bold h-11 px-5 hover:bg-gray-900 hover:text-white hover:border-gray-900 transition-all shadow-sm flex items-center gap-2 group"
+          >
+            <RefreshCw className={`w-4 h-4 transition-transform group-hover:rotate-180 duration-500 ${isGalleryLoading ? 'animate-spin' : ''}`} />
+            <span className="text-sm">게시물 새로고침</span>
+          </Button>
         </div>
       </div>
 
